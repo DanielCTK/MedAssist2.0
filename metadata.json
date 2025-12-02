@@ -1,5 +1,7 @@
 {
   "name": "RetinaAI - DR Diagnostic Assistant",
   "description": "Professional interface for Diabetic Retinopathy diagnosis using local AI models and Gemini-powered reporting.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

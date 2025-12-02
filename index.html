@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>MedAssist - AI Diagnostics</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -45,6 +45,10 @@
         color: #f8fafc;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
       }
       /* Custom scrollbar for cinematic feel */
       ::-webkit-scrollbar {
@@ -79,7 +83,8 @@
     "firebase/app": "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js",
     "firebase/auth": "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js",
     "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
+    "@capacitor/cli": "https://aistudiocdn.com/@capacitor/cli@^7.4.4"
   }
 }
 </script>

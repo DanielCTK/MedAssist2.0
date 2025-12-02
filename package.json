@@ -16,7 +16,11 @@
     "recharts": "^2.7.2",
     "framer-motion": "^10.12.16",
     "@google/genai": "^0.1.1",
-    "firebase": "^10.8.0"
+    "firebase": "^10.8.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/ios": "^6.0.0"
   },
   "browserslist": {
     "production": [
