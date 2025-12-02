@@ -1,28 +1,14 @@
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  query, 
-  orderBy, 
-  onSnapshot,
-  serverTimestamp
-} from "firebase/firestore";
 import { db } from "./firebase";
+import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, doc } from "firebase/firestore";
 import { Patient } from "../types";
 
 const COLLECTION_NAME = "patients";
 
 // --- GET REAL-TIME PATIENTS ---
-// Added onError callback to handle permission denied or network errors
 export const subscribeToPatients = (
   onData: (patients: Patient[]) => void,
   onError: (error: any) => void
 ) => {
-  // Simple query without ordering first to avoid index issues during initial setup,
-  // or handle the error if index is missing.
-  // Note: orderBy might require a composite index if mixed with where(), but here it's simple.
   const q = query(collection(db, COLLECTION_NAME), orderBy("createdAt", "desc"));
   
   return onSnapshot(q, 
@@ -59,8 +45,7 @@ export const addPatient = async (patientData: Omit<Patient, "id">) => {
 // --- UPDATE PATIENT ---
 export const updatePatient = async (id: string, data: Partial<Patient>) => {
   try {
-    const docRef = doc(db, COLLECTION_NAME, id);
-    await updateDoc(docRef, data);
+    await updateDoc(doc(db, COLLECTION_NAME, id), data);
   } catch (error) {
     console.error("Error updating patient: ", error);
     throw error;

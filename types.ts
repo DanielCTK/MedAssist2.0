@@ -1,10 +1,26 @@
 
+
 export enum DRGrade {
   NoDR = 0,
   Mild = 1,
   Moderate = 2,
   Severe = 3,
   Proliferative = 4
+}
+
+export interface UserProfile {
+  uid: string;
+  displayName: string;
+  email: string;
+  photoURL?: string;
+  bannerURL?: string; // New: For profile cover image
+  specialty?: string; // e.g. "Chief Surgeon"
+  hospital?: string;  // e.g. "General Hospital"
+  location?: string;  // New: e.g. "Sylhet, Bangladesh"
+  phone?: string;
+  bio?: string;
+  language?: string; // New: e.g. "English" or "Vietnamese"
+  themePreference?: 'dark' | 'light';
 }
 
 export interface Patient {
@@ -48,4 +64,16 @@ export interface InventoryItem {
     img: string;
     stock: number;
     badge: string;
+}
+
+export interface Appointment {
+    id: string;
+    patientName: string;
+    title: string;
+    type: 'Diagnosis' | 'Consult' | 'Surgery' | 'Meeting';
+    startTime: number;
+    duration: number;
+    status: 'Pending' | 'In Progress' | 'Done';
+    date: string;
+    notes?: string;
 }

@@ -86,8 +86,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isDarkMode, onL
 
       {/* Footer - Compact */}
       <div className={`p-4 border-t relative z-10 ${isDarkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-white'}`}>
-        <button className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors group ${isDarkMode ? 'text-slate-500 hover:text-white hover:bg-slate-900' : 'text-slate-500 hover:text-slate-900'}`}>
-          <Settings size={16} className="group-hover:rotate-90 transition-transform" />
+        <button 
+          onClick={() => setView('settings')}
+          className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors group ${currentView === 'settings' ? (isDarkMode ? 'text-white bg-slate-900' : 'text-slate-900 bg-slate-100') : (isDarkMode ? 'text-slate-500 hover:text-white hover:bg-slate-900' : 'text-slate-500 hover:text-slate-900')}`}
+        >
+          <Settings size={16} className={`group-hover:rotate-90 transition-transform ${currentView === 'settings' ? (isDarkMode ? 'text-red-500' : 'text-blue-500') : ''}`} />
           <span className="font-bold text-[10px] uppercase tracking-wider">{t.sidebar.settings}</span>
         </button>
         

@@ -1,83 +1,141 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Calendar, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Users, Calendar, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2 } from 'lucide-react';
 import { BarChart, Bar, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
-import { subscribeToPatients } from '../services/patientService'; // Use real service
-import { Patient } from '../types';
+import { subscribeToPatients } from '../services/patientService';
+import { subscribeToAppointments, addAppointment, updateAppointmentStatus, updateAppointment, deleteAppointment } from '../services/scheduleService';
+import { Patient, Appointment, UserProfile } from '../types';
+import { User } from 'firebase/auth';
 
 interface DashboardProps {
     isDarkMode: boolean;
+    currentUser: User | null;
+    userProfile?: UserProfile | null;
 }
 
 const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]; // 8:00 to 17:00
 
-// --- MOCK DATA FOR SCHEDULE (Keep mock for demo visual as DB might not have enough date info yet) ---
-const DAILY_SCHEDULE = [
-    {
-        id: 1,
-        patientName: 'Nguyen Van A',
-        avatar: 'https://i.pravatar.cc/150?u=1',
-        activities: [
-            { type: 'Scan AI', label: 'Retina Scan', start: 9, duration: 2.5, color: 'bg-blue-500' }
-        ]
-    },
-    {
-        id: 2,
-        patientName: 'Tran Thi B',
-        avatar: 'https://i.pravatar.cc/150?u=2',
-        activities: [
-             { type: 'Consult', label: 'Consultation', start: 13, duration: 1.5, color: 'bg-purple-500' }
-        ]
-    },
-    {
-        id: 3,
-        patientName: 'Le Van C',
-        avatar: 'https://i.pravatar.cc/150?u=3',
-        activities: [
-            { type: 'Surgery', label: 'Surgery', start: 10.5, duration: 3, color: 'bg-indigo-600' }
-        ]
-    },
-    {
-        id: 4,
-        patientName: 'Pham Dung',
-        avatar: 'https://i.pravatar.cc/150?u=4',
-        activities: [
-            { type: 'Test', label: 'Blood Test', start: 8, duration: 2, color: 'bg-slate-400' }
-        ]
-    }
-];
-
-const DOCTOR_AGENDA = [
-    { time: '08:30', title: 'Morning Briefing', type: 'Meeting', status: 'Done' },
-    { time: '09:00', title: 'Scan (Nguyen Van A)', type: 'Diagnosis', status: 'In Progress' },
-    { time: '11:00', title: 'Surgery: Le Van C', type: 'Surgery', status: 'Pending' },
-    { time: '14:00', title: 'Consult: Tran Thi B', type: 'Consult', status: 'Pending' },
-];
-
-const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
+const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProfile }) => {
   const [viewMode, setViewMode] = useState<'personal' | 'department'>('personal');
-  const [patientCount, setPatientCount] = useState<number | null>(null); // Real count
+  const [patientCount, setPatientCount] = useState<number | null>(null);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  
+  // Modal State
+  const [isApptModalOpen, setIsApptModalOpen] = useState(false);
+  const [editingApptId, setEditingApptId] = useState<string | null>(null); // Track if editing
+  const [newAppt, setNewAppt] = useState<Partial<Appointment>>({
+      patientName: '',
+      title: '',
+      type: 'Diagnosis',
+      startTime: 9,
+      duration: 1,
+      status: 'Pending'
+  });
+
   const { t, language } = useLanguage();
   
-  // Real-time Fetch
+  // Real-time Fetch Patients Count
   useEffect(() => {
     const unsubscribe = subscribeToPatients(
-        (data) => {
-            setPatientCount(data.length);
-        },
-        (err) => console.error("Dash error", err)
+        (data) => setPatientCount(data.length),
+        (err) => console.error("Patient fetch error", err)
     );
     return () => unsubscribe();
   }, []);
+
+  // Real-time Fetch Appointments for TODAY
+  useEffect(() => {
+      const today = new Date().toISOString().split('T')[0];
+      const unsubscribe = subscribeToAppointments(
+          today,
+          (data) => setAppointments(data),
+          (err) => console.error("Schedule fetch error", err)
+      );
+      return () => unsubscribe();
+  }, []);
   
+  // --- HANDLERS ---
+
+  const openAddModal = () => {
+      setEditingApptId(null);
+      setNewAppt({ patientName: '', title: '', type: 'Diagnosis', startTime: 9, duration: 1, status: 'Pending' });
+      setIsApptModalOpen(true);
+  };
+
+  const openEditModal = (appt: Appointment) => {
+      setEditingApptId(appt.id);
+      setNewAppt({ ...appt });
+      setIsApptModalOpen(true);
+  };
+
+  const handleSaveAppointment = async (e: React.FormEvent) => {
+      e.preventDefault();
+      const today = new Date().toISOString().split('T')[0];
+      
+      try {
+          const apptData = {
+              patientName: newAppt.patientName || 'Unknown',
+              title: newAppt.title || 'Checkup',
+              type: newAppt.type as any,
+              startTime: Number(newAppt.startTime),
+              duration: Number(newAppt.duration),
+              status: newAppt.status || 'Pending',
+              date: today,
+              notes: newAppt.notes || ''
+          };
+
+          if (editingApptId) {
+              await updateAppointment(editingApptId, apptData);
+          } else {
+              await addAppointment(apptData);
+          }
+          
+          setIsApptModalOpen(false);
+      } catch (err) {
+          alert("Failed to save appointment");
+      }
+  };
+
+  const handleDelete = async () => {
+      if (editingApptId && confirm("Are you sure you want to delete this appointment?")) {
+          try {
+              await deleteAppointment(editingApptId);
+              setIsApptModalOpen(false);
+          } catch(err) {
+              alert("Failed to delete");
+          }
+      }
+  };
+
+  const handleStatusToggle = async (e: React.MouseEvent, id: string, currentStatus: string) => {
+      e.stopPropagation(); // Prevent opening edit modal
+      const newStatus = currentStatus === 'Done' ? 'Pending' : currentStatus === 'Pending' ? 'In Progress' : 'Done';
+      await updateAppointmentStatus(id, newStatus as any);
+  };
+
+  // Convert float time to string (9.5 -> "09:30")
+  const formatTime = (time: number) => {
+      const hours = Math.floor(time);
+      const minutes = Math.round((time - hours) * 60);
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  };
+
   // Theme Helpers
   const cardClass = isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-100 text-slate-900 shadow-lg shadow-blue-50";
   const textMuted = isDarkMode ? "text-slate-400" : "text-slate-500";
   const themeColor = isDarkMode ? "text-red-500" : "text-blue-500";
   const themeBg = isDarkMode ? "bg-red-500" : "bg-blue-500";
   const themeBorder = isDarkMode ? "border-red-500" : "border-blue-500";
-  
+  const inputClass = isDarkMode ? "bg-slate-950 border-slate-700 text-white focus:border-red-600" : "bg-white border-slate-300 text-slate-900 focus:border-blue-600";
+
+  // Chart Data (Placeholder for stats, can be connected later)
+  const statsData = [
+    { name: 'Mon', patients: 12 }, { name: 'Tue', patients: 19 },
+    { name: 'Wed', patients: 15 }, { name: 'Thu', patients: 22 },
+    { name: 'Fri', patients: 18 }, { name: 'Sat', patients: 10 },
+  ];
+
   // Variants
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
@@ -91,7 +149,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
 
   // 1. WELCOME BANNER
   const WelcomeBanner = () => {
-    // Image: Foggy Mountains (Zen/Serene)
     const bannerImage = "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=2070&auto=format&fit=crop";
     
     return (
@@ -115,13 +172,15 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                             {new Date().toDateString()}
                         </span>
                         <span className="flex items-center text-[10px] font-bold uppercase tracking-widest text-red-200">
-                            <MapPin size={10} className="mr-1" /> General Hospital
+                            <MapPin size={10} className="mr-1" /> {userProfile?.hospital || 'General Hospital'}
                         </span>
                      </div>
-                    <h1 className="text-2xl font-black mb-1 tracking-tight text-white drop-shadow-md">{t.dashboard.greeting}, Dr. Fox!</h1>
+                    <h1 className="text-2xl font-black mb-1 tracking-tight text-white drop-shadow-md">
+                        {t.dashboard.greeting}, {userProfile?.displayName?.split(' ')[0] || currentUser?.displayName?.split(' ')[0] || 'Doctor'}!
+                    </h1>
                     <div className="flex items-center space-x-3 mt-1">
                         <p className="text-[11px] font-medium text-slate-200">
-                             {t.dashboard.appointments_left.replace('{{count}}', '4')}
+                             {t.dashboard.appointments_left.replace('{{count}}', appointments.filter(a => a.status !== 'Done').length.toString())}
                         </p>
                     </div>
                 </div>
@@ -140,12 +199,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
 
   // --- VIEW 1: PERSONAL WORKSPACE ---
   const PersonalDashboard = () => {
-      const statsData = [
-          { name: 'Mon', patients: 12 }, { name: 'Tue', patients: 19 },
-          { name: 'Wed', patients: 15 }, { name: 'Thu', patients: 22 },
-          { name: 'Fri', patients: 18 }, { name: 'Sat', patients: 10 },
-      ];
-
       return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-3">
             
@@ -153,12 +206,12 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                 {/* LEFT COLUMN: Profile & Agenda */}
                 <div className="space-y-3 lg:col-span-1">
                     
-                    {/* Doctor Profile Card (Compacted) */}
+                    {/* Doctor Profile Card */}
                     <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} relative overflow-hidden`}>
                         <div className="flex items-center space-x-3 mb-3 relative z-10">
                             <div className="relative">
                                 <img 
-                                    src="https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop" 
+                                    src={userProfile?.photoURL || currentUser?.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop"} 
                                     className={`w-10 h-10 rounded-lg object-cover border-2 ${themeBorder} shadow-md`}
                                     alt="Profile"
                                 />
@@ -166,9 +219,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                                     <Check size={6} className="text-white" />
                                 </div>
                             </div>
-                            <div>
-                                <h3 className="text-sm font-bold leading-tight">Dr. Robert Fox</h3>
-                                <p className={`text-[9px] ${textMuted} uppercase tracking-wider font-bold`}>Chief Surgeon</p>
+                            <div className="overflow-hidden">
+                                <h3 className="text-sm font-bold leading-tight truncate">{userProfile?.displayName || currentUser?.displayName || 'Medical Staff'}</h3>
+                                <p className={`text-[9px] ${textMuted} uppercase tracking-wider font-bold`}>{userProfile?.specialty || 'Medical Specialist'}</p>
                             </div>
                         </div>
                         
@@ -186,35 +239,66 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                         </div>
                     </motion.div>
 
-                    {/* Today's Agenda (Shortened) */}
-                    <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} flex flex-col h-[280px]`}>
+                    {/* Today's Agenda (Interactive) */}
+                    <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} flex flex-col h-[320px]`}>
                         <div className="flex justify-between items-center mb-3">
                             <h3 className="font-bold text-xs">{t.dashboard.agenda.title}</h3>
-                            <button className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><Plus size={12} /></button>
+                            <button 
+                                onClick={openAddModal}
+                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                            >
+                                <Plus size={14} className={themeColor}/>
+                            </button>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
-                            {DOCTOR_AGENDA.map((item, idx) => (
-                                <div key={idx} className="flex gap-2 group cursor-pointer">
-                                    <div className="flex flex-col items-center">
-                                        <span className={`text-[9px] font-bold ${item.status === 'Done' ? 'text-slate-400 line-through' : themeColor}`}>{item.time}</span>
-                                        <div className={`w-0.5 h-full mt-0.5 ${item.status === 'Done' ? 'bg-slate-200 dark:bg-slate-800' : isDarkMode ? 'bg-red-900' : 'bg-blue-200'}`} />
-                                    </div>
-                                    <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all ${
-                                        item.status === 'In Progress' 
-                                            ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200')
-                                            : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' 
-                                            : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`
-                                    }`}>
-                                        <div className="flex justify-between items-start">
-                                            <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${
-                                                item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'
-                                            }`}>{item.type}</span>
-                                            {item.status === 'In Progress' && <div className={`w-1.5 h-1.5 rounded-full ${themeBg} animate-pulse`} />}
-                                        </div>
-                                        <h4 className={`text-[10px] font-bold ${item.status === 'Done' ? 'line-through' : ''}`}>{item.title}</h4>
-                                    </div>
+                            {appointments.length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50">
+                                    <Calendar size={24} className="mb-2" />
+                                    <p className="text-[10px] font-bold uppercase">No appointments today</p>
+                                    <button onClick={openAddModal} className="mt-2 text-[9px] underline">Add one</button>
                                 </div>
-                            ))}
+                            ) : (
+                                appointments.map((item) => (
+                                    <div 
+                                        key={item.id} 
+                                        className="flex gap-2 group cursor-pointer relative" 
+                                        onClick={() => openEditModal(item)}
+                                    >
+                                        <div className="flex flex-col items-center">
+                                            <span className={`text-[9px] font-bold ${item.status === 'Done' ? 'text-slate-400 line-through' : themeColor}`}>
+                                                {formatTime(item.startTime)}
+                                            </span>
+                                            <div className={`w-0.5 h-full mt-0.5 ${item.status === 'Done' ? 'bg-slate-200 dark:bg-slate-800' : isDarkMode ? 'bg-red-900' : 'bg-blue-200'}`} />
+                                        </div>
+                                        <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all relative ${
+                                            item.status === 'In Progress' 
+                                                ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200')
+                                                : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' 
+                                                : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`
+                                        }`}>
+                                            <div className="flex justify-between items-start">
+                                                <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${
+                                                    item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'
+                                                }`}>{item.type}</span>
+                                                <button 
+                                                    onClick={(e) => handleStatusToggle(e, item.id, item.status)}
+                                                    className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${themeBg} border-transparent` : 'border-slate-300'}`}
+                                                >
+                                                    {item.status === 'In Progress' && <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}
+                                                </button>
+                                            </div>
+                                            <h4 className={`text-[10px] font-bold ${item.status === 'Done' ? 'line-through' : ''}`}>
+                                                {item.title} - <span className="opacity-70">{item.patientName}</span>
+                                            </h4>
+                                            
+                                            {/* Edit Hint */}
+                                            <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <Edit2 size={10} className="text-slate-400"/>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </motion.div>
                 </div>
@@ -255,7 +339,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                             </div>
                             <div className="flex space-x-2">
                                 <span className="flex items-center text-[9px] font-bold"><div className={`w-1 h-1 ${themeBg} rounded-full mr-1`}/> {t.dashboard.quick_actions.consult}</span>
-                                <span className="flex items-center text-[9px] font-bold text-slate-400"><div className="w-1 h-1 bg-slate-300 rounded-full mr-1"/> Surg</span>
                             </div>
                         </div>
                         <div className="w-full h-[140px]">
@@ -288,14 +371,22 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
 
   // --- VIEW 2: DEPARTMENT SCHEDULE (Tighter Layout) ---
   const DepartmentDashboard = () => {
-      // Calculate CSS percentages for the timeline
       const getPos = (start: number, duration: number) => {
           const totalHours = 17 - 8; // 9 hours total (8am to 5pm)
           const startOffset = start - 8;
           const left = (startOffset / totalHours) * 100;
           const width = (duration / totalHours) * 100;
-          return { left: `${left}%`, width: `${width}%` };
+          return { left: `${Math.max(0, left)}%`, width: `${Math.min(100, width)}%` };
       };
+
+      const getTypeColor = (type: string) => {
+          switch(type) {
+              case 'Diagnosis': return 'bg-blue-500';
+              case 'Surgery': return 'bg-red-500';
+              case 'Consult': return 'bg-purple-500';
+              default: return 'bg-slate-400';
+          }
+      }
 
       return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-3">
@@ -304,16 +395,18 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center space-x-3">
                      <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t.dashboard.schedule.title}</h2>
+                     <button 
+                        onClick={openAddModal}
+                        className={`p-1.5 rounded-full ${themeBg} text-white shadow hover:scale-105 transition-transform`}
+                     >
+                        <Plus size={14} />
+                     </button>
                      <div className="h-4 w-px bg-slate-300 dark:bg-slate-700"></div>
                      <div className="flex space-x-2 text-[9px] font-bold uppercase tracking-wider">
-                         <span className="flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5"></span> Scan AI</span>
+                         <span className="flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5"></span> Diagnosis</span>
                          <span className="flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-purple-500 mr-1.5"></span> Consult</span>
-                         <span className="flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span> Break</span>
+                         <span className="flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5"></span> Surgery</span>
                      </div>
-                </div>
-                <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
-                    <button className="px-2 py-0.5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">Day</button>
-                    <button className="px-2 py-0.5 text-slate-500 hover:text-slate-900 dark:hover:text-white text-[10px] font-bold">Week</button>
                 </div>
             </div>
 
@@ -323,14 +416,14 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                 className={`p-3 rounded-xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-[#1e293b] border-slate-700 text-white'}`}
             >
                 <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-2">
-                     <h3 className="font-bold text-sm text-white">Schedule</h3>
+                     <h3 className="font-bold text-sm text-white">Timeline</h3>
                      <div className="text-[10px] font-mono text-slate-400 opacity-70">
                          {new Date().toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                      </div>
                 </div>
 
                 <div className="overflow-x-auto custom-scrollbar pb-2">
-                    <div className="min-w-[700px]">
+                    <div className="min-w-[700px] sm:min-w-full">
                         
                         {/* Time Ruler */}
                         <div className="flex mb-2 pl-36 relative h-5">
@@ -356,78 +449,53 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                              </div>
                         </div>
 
-                        {/* Rows (Tighter Spacing) */}
+                        {/* Rows (Dynamic based on appointments) */}
                         <div className="space-y-3 relative z-10">
-                            {DAILY_SCHEDULE.map((row) => (
+                            {appointments.map((appt) => (
                                 <motion.div 
-                                    key={row.id}
+                                    key={appt.id}
                                     initial={{ opacity: 0, x: -10 }}
                                     animate={{ opacity: 1, x: 0 }}
                                     className="flex items-center group"
                                 >
                                     {/* Patient Info Column */}
-                                    <div className="w-36 flex-shrink-0 flex items-center gap-2 pr-2">
-                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] ${
-                                            row.id % 2 === 0 ? 'bg-purple-600' : 'bg-pink-600'
-                                        }`}>
-                                            {row.patientName.split(' ').map(n => n[0]).join('').substring(0,2)}
+                                    <div className="w-36 flex-shrink-0 flex items-center gap-2 pr-2 overflow-hidden">
+                                        <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-[10px] bg-slate-700 text-white`}>
+                                            {appt.patientName.charAt(0)}
                                         </div>
-                                        <p className="text-[10px] font-bold text-slate-200 truncate">{row.patientName}</p>
+                                        <p className="text-[10px] font-bold text-slate-200 truncate">{appt.patientName}</p>
                                     </div>
 
                                     {/* Timeline Track */}
                                     <div className="flex-1 relative h-8 bg-slate-800/50 rounded-lg flex items-center overflow-hidden">
-                                        {row.activities.map((act, i) => {
-                                            const { left, width } = getPos(act.start, act.duration);
+                                        {/* Render single block for this appointment row */}
+                                        {(() => {
+                                            const { left, width } = getPos(appt.startTime, appt.duration);
                                             return (
                                                 <motion.div
-                                                    key={i}
                                                     whileHover={{ scale: 1.02, zIndex: 10 }}
-                                                    className={`absolute h-5 rounded-md ${act.color} flex items-center px-2 shadow-lg cursor-pointer border border-white/10`}
+                                                    className={`absolute h-5 rounded-md ${getTypeColor(appt.type)} flex items-center px-2 shadow-lg cursor-pointer border border-white/10`}
                                                     style={{ left, width }}
+                                                    onClick={() => openEditModal(appt)}
                                                 >
-                                                    <span className="text-[8px] font-bold text-white truncate">{act.label}</span>
+                                                    <span className="text-[8px] font-bold text-white truncate">{appt.title}</span>
                                                 </motion.div>
-                                            )
-                                        })}
+                                            );
+                                        })()}
                                     </div>
                                 </motion.div>
                             ))}
+                            {appointments.length === 0 && (
+                                <div className="text-center py-10 text-slate-500 text-xs font-bold">No data. Add an appointment to view timeline.</div>
+                            )}
                         </div>
 
                     </div>
                 </div>
             </motion.div>
-            
-            {/* Bottom Stats (Simplified & Smaller) */}
-            <div className="grid grid-cols-3 gap-3">
-                 <div className={`p-3 rounded-xl border ${cardClass} flex items-center justify-between`}>
-                     <div>
-                         <p className={`text-[9px] uppercase font-bold ${textMuted}`}>{t.dashboard.stats.total_scans}</p>
-                         <h3 className="text-lg font-black">24</h3>
-                     </div>
-                     <div className={`p-1.5 rounded-full ${isDarkMode ? 'bg-red-900 text-red-500' : 'bg-blue-100 text-blue-600'}`}><ScanEye size={14}/></div>
-                 </div>
-                 <div className={`p-3 rounded-xl border ${cardClass} flex items-center justify-between`}>
-                     <div>
-                         <p className={`text-[9px] uppercase font-bold ${textMuted}`}>{t.dashboard.stats.consultations}</p>
-                         <h3 className="text-lg font-black">12</h3>
-                     </div>
-                     <div className="p-1.5 bg-purple-100 dark:bg-purple-900 rounded-full text-purple-600"><MessageSquare size={14}/></div>
-                 </div>
-                 <div className={`p-3 rounded-xl border ${cardClass} flex items-center justify-between`}>
-                     <div>
-                         <p className={`text-[9px] uppercase font-bold ${textMuted}`}>{t.dashboard.stats.efficiency}</p>
-                         <h3 className="text-lg font-black text-green-500">94%</h3>
-                     </div>
-                     <div className="p-1.5 bg-green-100 dark:bg-green-900 rounded-full text-green-600"><TrendingUp size={14}/></div>
-                 </div>
-            </div>
-
         </motion.div>
       );
   }
-
 
   return (
     <div className="h-full flex flex-col">
@@ -462,6 +530,87 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
             >
                 {viewMode === 'personal' ? <PersonalDashboard /> : <DepartmentDashboard />}
             </motion.div>
+        </AnimatePresence>
+
+        {/* --- APPOINTMENT MODAL (ADD / EDIT) --- */}
+        <AnimatePresence>
+            {isApptModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <motion.div 
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setIsApptModalOpen(false)}
+                        className="absolute inset-0 bg-black/80 backdrop-blur-sm" 
+                    />
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                        className={`relative w-full max-w-sm p-6 rounded-2xl border shadow-2xl ${cardClass} max-h-[90vh] overflow-y-auto`}
+                    >
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-lg font-black uppercase flex items-center">
+                                {editingApptId ? (
+                                    <>
+                                        <Edit2 size={18} className={`mr-2 ${themeColor}`} /> Edit Schedule
+                                    </>
+                                ) : (
+                                    <>
+                                        <Plus size={18} className={`mr-2 ${themeColor}`} /> Add Schedule
+                                    </>
+                                )}
+                            </h2>
+                            <button onClick={() => setIsApptModalOpen(false)}><X size={18} /></button>
+                        </div>
+                        <form onSubmit={handleSaveAppointment} className="space-y-3">
+                            <div>
+                                <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Patient Name</label>
+                                <input type="text" required value={newAppt.patientName} onChange={e => setNewAppt({...newAppt, patientName: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} />
+                            </div>
+                            <div>
+                                <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Title/Activity</label>
+                                <input type="text" required value={newAppt.title} onChange={e => setNewAppt({...newAppt, title: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} placeholder="e.g. Scan" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Start Time (24h)</label>
+                                    <select value={newAppt.startTime} onChange={e => setNewAppt({...newAppt, startTime: Number(e.target.value)})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}>
+                                        {TIME_SLOTS.map(t => <option key={t} value={t}>{t}:00</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Duration (Hrs)</label>
+                                    <input type="number" step="0.5" value={newAppt.duration} onChange={e => setNewAppt({...newAppt, duration: Number(e.target.value)})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} />
+                                </div>
+                            </div>
+                            <div>
+                                <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Type</label>
+                                <select value={newAppt.type} onChange={e => setNewAppt({...newAppt, type: e.target.value as any})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}>
+                                    <option value="Diagnosis">Diagnosis</option>
+                                    <option value="Consult">Consult</option>
+                                    <option value="Surgery">Surgery</option>
+                                    <option value="Meeting">Meeting</option>
+                                </select>
+                            </div>
+                            
+                            <div className="flex gap-2 mt-6">
+                                {editingApptId && (
+                                    <button 
+                                        type="button" 
+                                        onClick={handleDelete}
+                                        className={`px-4 py-3 rounded-lg font-bold text-white uppercase text-xs tracking-widest bg-slate-700 hover:bg-red-600 transition-colors`}
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                )}
+                                <button type="submit" className={`flex-1 py-3 rounded-lg font-bold text-white uppercase text-xs tracking-widest ${themeBg} hover:brightness-110 flex items-center justify-center`}>
+                                    <Save size={16} className="mr-2" />
+                                    {editingApptId ? 'Update' : 'Save'}
+                                </button>
+                            </div>
+                        </form>
+                    </motion.div>
+                </div>
+            )}
         </AnimatePresence>
     </div>
   );

@@ -1,6 +1,7 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBHjEDhhFTa4SfX2J5MPNmPzzr39O_iYKs",
@@ -12,15 +13,10 @@ const firebaseConfig = {
   measurementId: "G-9ZXPF54YSQ"
 };
 
-// Initialize Firebase
-// Using a check to prevent multiple initializations in development hot-reload environments
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-
-// Initialize Auth instance
+// Initialize Firebase (Modular SDK)
+const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-
-// Initialize Firestore instance
 const db = getFirestore(app);
+const storage = getStorage(app);
 
-export { auth, db };
-export default app;
+export { auth, db, storage };
