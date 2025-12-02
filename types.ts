@@ -1,5 +1,3 @@
-
-
 export enum DRGrade {
   NoDR = 0,
   Mild = 1,
@@ -23,6 +21,15 @@ export interface UserProfile {
   themePreference?: 'dark' | 'light';
 }
 
+export interface DiagnosisRecord {
+    id: string;
+    date: string;
+    grade: DRGrade;
+    confidence: number;
+    note: string;
+    imageUrl?: string;
+}
+
 export interface Patient {
   id: string;
   name: string;
@@ -33,6 +40,12 @@ export interface Patient {
   status?: 'Active' | 'Follow-up' | 'Critical' | 'Discharged';
   phone?: string;
   email?: string;
+  // New fields for the UI
+  bloodType?: string;
+  height?: number; // cm
+  weight?: number; // kg
+  avatarUrl?: string;
+  diagnosisHistory?: DiagnosisRecord[];
 }
 
 export interface AnalysisResult {

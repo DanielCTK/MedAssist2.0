@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan } from 'lucide-react';
+import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User } from 'lucide-react';
 import { analyzeImageWithLocalModel } from '../services/localAnalysisService';
 import { generateClinicalReport } from '../services/geminiService';
-import { AnalysisResult, DRGrade, Patient, ReportData, ChartData } from '../types';
-import { subscribeToPatients } from '../services/patientService'; // New Import
+import { AnalysisResult, DRGrade, Patient, ReportData, DiagnosisRecord } from '../types';
+import { subscribeToPatients, addPatientDiagnosis } from '../services/patientService';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -21,307 +21,296 @@ const GRADE_COLORS = {
 };
 
 const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
-  // Use real patients from Firestore
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   
-  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [report, setReport] = useState<ReportData | null>(null);
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [isReportGenerating, setIsReportGenerating] = useState(false);
+  const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useLanguage();
 
-  // Subscribe to patients on mount
+  // Load patients for the dropdown
   useEffect(() => {
-    const unsubscribe = subscribeToPatients(
-      (data) => {
-        setPatients(data);
-      },
-      (error) => {
-        console.error("Failed to fetch patients:", error);
-      }
-    );
-    return () => unsubscribe();
+      const unsubscribe = subscribeToPatients(
+          (data) => setPatients(data),
+          (err) => console.error(err)
+      );
+      return () => unsubscribe();
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-      setResult(null);
-      setReport(null);
-      setZoomLevel(1);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+        setAnalysisResult(null);
+        setReportData(null);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
   const handleAnalyze = async () => {
-    if (!imageFile || !selectedPatient) return;
-    
+    if (!imageFile) return;
+
     setIsAnalyzing(true);
     try {
-      const analysisData = await analyzeImageWithLocalModel(imageFile);
-      setResult(analysisData);
+      // 1. Local AI Analysis
+      const result = await analyzeImageWithLocalModel(imageFile);
+      setAnalysisResult(result);
       
-      setIsGeneratingReport(true);
-      const reportData = await generateClinicalReport(selectedPatient, analysisData);
-      setReport(reportData);
+      // 2. Generate Report via Gemini (Only if patient is selected, or generic)
+      const mockPatient = patients.find(p => p.id === selectedPatientId) || {
+          id: 'temp', name: 'Unknown Patient', age: 0, gender: 'Other', history: 'None', lastExam: ''
+      } as Patient;
+
+      setIsReportGenerating(true);
+      const report = await generateClinicalReport(mockPatient, result);
+      setReportData(report);
+      setIsReportGenerating(false);
+
     } catch (error) {
-      alert("Analysis failed.");
+      console.error("Analysis failed", error);
+      alert("Analysis failed. Please try again.");
     } finally {
       setIsAnalyzing(false);
-      setIsGeneratingReport(false);
     }
   };
 
-  const getConfidenceChartData = (confidence: number): ChartData[] => [
-    { name: 'Confidence', value: confidence, fill: '#ef4444' }, // Red for confidence
-    { name: 'Uncertainty', value: 1 - confidence, fill: isDarkMode ? '#1e293b' : '#e2e8f0' },
-  ];
+  const handleSaveToRecord = async () => {
+      if (!selectedPatientId || !analysisResult || !reportData) {
+          alert("Please select a patient and ensure analysis is complete.");
+          return;
+      }
 
-  // Theme Classes
-  const containerClass = isDarkMode ? "bg-slate-900 border-slate-800 text-slate-200" : "bg-white border-slate-200 text-slate-900 shadow-lg";
-  const inputClass = isDarkMode ? "bg-slate-950 border-slate-700 text-white focus:border-red-600" : "bg-slate-50 border-slate-300 text-slate-900 focus:border-blue-600";
-  const mutedText = isDarkMode ? "text-slate-500" : "text-slate-500";
-  const panelBg = isDarkMode ? "bg-black/40" : "bg-slate-50";
-  const accentText = isDarkMode ? "text-red-600" : "text-blue-600";
-  const buttonBg = isDarkMode ? "bg-red-600 hover:bg-red-700 shadow-red-500/30" : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/30";
-  const borderFocus = isDarkMode ? "border-red-600" : "border-blue-600";
-  const hoverBorder = isDarkMode ? "hover:border-slate-500" : "hover:border-blue-400";
+      setIsSaving(true);
+      try {
+          const newRecord: DiagnosisRecord = {
+              id: Date.now().toString(),
+              date: new Date().toISOString(),
+              grade: analysisResult.grade,
+              confidence: analysisResult.confidence,
+              note: reportData.clinicalNotes,
+              imageUrl: imagePreview || undefined // In real app, upload to storage first
+          };
+
+          await addPatientDiagnosis(selectedPatientId, newRecord);
+          alert("Saved to patient record successfully!");
+          
+          // Reset
+          setImageFile(null);
+          setImagePreview(null);
+          setAnalysisResult(null);
+          setReportData(null);
+          setSelectedPatientId("");
+
+      } catch (err) {
+          console.error(err);
+          alert("Failed to save record.");
+      } finally {
+          setIsSaving(false);
+      }
+  };
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
+  const selectedPatient = patients.find(p => p.id === selectedPatientId);
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* Left Panel: Inputs (Reduced width and padding) */}
-      <div className={`w-[240px] lg:w-1/5 p-4 flex flex-col border-r overflow-y-auto custom-scrollbar ${panelBg} ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-        <h2 className={`text-lg font-black mb-5 flex items-center uppercase tracking-tighter ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-          <Scan className={`mr-2 ${accentText}`} size={20} /> {t.diagnosis.title}
-        </h2>
-
-        {/* Patient Selection */}
-        <div className="mb-5">
-          <label className={`block text-[9px] font-bold uppercase tracking-widest mb-1.5 ${mutedText}`}>{t.diagnosis.subject}</label>
-          <motion.select 
-            whileHover={{ scale: 1.01 }}
-            className={`w-full p-2.5 border rounded outline-none transition-all uppercase text-[10px] font-bold ${inputClass}`}
-            onChange={(e) => setSelectedPatient(patients.find(p => p.id === e.target.value) || null)}
-            defaultValue=""
-          >
-            <option value="" disabled>{t.diagnosis.select_placeholder}</option>
-            {patients.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </motion.select>
-          {selectedPatient && (
-            <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`mt-2 p-2 border-l-2 ${isDarkMode ? 'border-red-600' : 'border-blue-600'} text-[10px] ${isDarkMode ? 'bg-slate-900/50' : 'bg-white shadow-sm'}`}>
-              <p className="line-clamp-2">{selectedPatient.history}</p>
-            </motion.div>
-          )}
-        </div>
-
-        {/* Image Upload - Shorter */}
-        <div className="mb-5">
-          <label className={`block text-[9px] font-bold uppercase tracking-widest mb-1.5 ${mutedText}`}>{t.diagnosis.scan_source}</label>
-          <motion.div 
-            whileHover={{ scale: 1.01, backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(239, 246, 255, 1)' }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed h-32 flex flex-col items-center justify-center cursor-pointer transition-all relative overflow-hidden group rounded-lg ${
-              imagePreview ? borderFocus : isDarkMode ? `border-slate-700 ${hoverBorder}` : `border-slate-300 ${hoverBorder}`
+    <div className="h-full flex flex-col md:flex-row gap-6 pb-6">
+      {/* LEFT COLUMN: Input & Preview */}
+      <motion.div 
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className={`w-full md:w-1/2 flex flex-col gap-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+      >
+        <div className={`p-6 rounded-2xl border flex flex-col flex-1 shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-bold flex items-center">
+                  <Scan size={20} className="mr-2 text-blue-500" />
+                  {t.diagnosis.title}
+              </h2>
+              {/* Patient Selector */}
+              <div className="relative">
+                  <select 
+                    value={selectedPatientId}
+                    onChange={(e) => setSelectedPatientId(e.target.value)}
+                    className={`appearance-none pl-8 pr-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border outline-none cursor-pointer transition-colors ${
+                        isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-blue-500' : 'bg-slate-100 border-slate-200 focus:border-blue-500'
+                    }`}
+                  >
+                      <option value="">-- {t.diagnosis.select_placeholder} --</option>
+                      {patients.map(p => (
+                          <option key={p.id} value={p.id}>{p.name} (ID: {p.id.substring(0,4)})</option>
+                      ))}
+                  </select>
+                  <User size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
+              </div>
+          </div>
+          
+          <div 
+            className={`flex-1 rounded-xl border-2 border-dashed relative overflow-hidden transition-all group ${
+                imagePreview 
+                ? 'border-transparent' 
+                : isDarkMode ? 'border-slate-700 hover:border-slate-500 bg-slate-950/50' : 'border-slate-300 hover:border-blue-400 bg-slate-50'
             }`}
           >
-             
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              className="hidden" 
-              accept="image/*" 
-              onChange={handleFileChange} 
-            />
             {imagePreview ? (
-              <div className="relative w-full h-full flex items-center justify-center bg-black">
-                 <img src={imagePreview} alt="Preview" className="max-h-full max-w-full object-contain opacity-80" />
-                 <button 
-                  onClick={(e) => { e.stopPropagation(); setImageFile(null); setImagePreview(null); setResult(null); }}
-                  className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full hover:bg-red-700 z-10"
-                 >
-                   <X size={12} />
-                 </button>
+              <div className="relative w-full h-full group">
+                 <img src={imagePreview} className="w-full h-full object-contain" alt="Fundus" />
+                 <div className="absolute top-2 right-2 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => setImagePreview(null)} className="p-2 bg-black/50 text-white rounded-full hover:bg-red-600 transition-colors">
+                        <X size={16} />
+                    </button>
+                 </div>
+                 {/* Scanning Effect Overlay */}
+                 {isAnalyzing && (
+                     <div className="absolute inset-0 bg-blue-500/10 z-10">
+                         <div className="absolute top-0 left-0 w-full h-1 bg-blue-400 shadow-[0_0_15px_rgba(59,130,246,1)] animate-[scan_2s_linear_infinite]" />
+                     </div>
+                 )}
               </div>
             ) : (
-              <>
-                <Upload className="w-6 h-6 mb-1 opacity-40 group-hover:opacity-100 transition-opacity" />
-                <p className="text-[9px] font-bold uppercase opacity-60">{t.diagnosis.upload_text}</p>
-              </>
+              <div 
+                onClick={triggerFileInput}
+                className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer"
+              >
+                <div className={`p-4 rounded-full mb-3 transition-transform group-hover:scale-110 ${isDarkMode ? 'bg-slate-800' : 'bg-blue-50'}`}>
+                    <Upload size={32} className={isDarkMode ? 'text-slate-400' : 'text-blue-500'} />
+                </div>
+                <p className="text-sm font-medium opacity-70">{t.diagnosis.scan_source}</p>
+                <p className="text-xs opacity-40 mt-1 uppercase font-bold tracking-widest">{t.diagnosis.upload_text}</p>
+              </div>
             )}
-          </motion.div>
+            <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileSelect} 
+                accept="image/*" 
+                className="hidden" 
+            />
+          </div>
+
+          <div className="mt-6">
+              <button 
+                onClick={handleAnalyze}
+                disabled={!imageFile || isAnalyzing}
+                className={`w-full py-4 rounded-xl font-bold uppercase tracking-widest text-xs flex items-center justify-center transition-all shadow-lg ${
+                    !imageFile 
+                    ? 'bg-slate-700 cursor-not-allowed opacity-50' 
+                    : isAnalyzing 
+                        ? 'bg-blue-700 cursor-wait' 
+                        : 'bg-blue-600 hover:bg-blue-500 hover:scale-[1.02]'
+                } text-white`}
+              >
+                  {isAnalyzing ? (
+                      <><Loader2 size={16} className="animate-spin mr-2" /> {t.diagnosis.running}</>
+                  ) : (
+                      <><Microscope size={16} className="mr-2" /> {t.diagnosis.analyze_btn}</>
+                  )}
+              </button>
+          </div>
         </div>
+      </motion.div>
 
-        {/* Action Button */}
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={handleAnalyze}
-          disabled={!selectedPatient || !imageFile || isAnalyzing}
-          className={`w-full py-3 font-black text-white flex items-center justify-center space-x-2 transition-all uppercase text-xs tracking-widest rounded-lg ${
-            !selectedPatient || !imageFile || isAnalyzing 
-            ? 'bg-slate-500 cursor-not-allowed opacity-50' 
-            : buttonBg
-          }`}
-        >
-          {isAnalyzing ? (
-            <>
-              <Loader2 className="animate-spin" size={14} />
-              <span>{t.diagnosis.running}</span>
-            </>
+      {/* RIGHT COLUMN: Results */}
+      <motion.div 
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className={`w-full md:w-1/2 flex flex-col gap-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+      >
+          {!analysisResult ? (
+              <div className={`flex-1 rounded-2xl border border-dashed flex items-center justify-center p-10 ${isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="text-center opacity-40">
+                      <FileText size={48} className="mx-auto mb-4" />
+                      <p className="font-bold uppercase tracking-widest text-xs">{t.diagnosis.awaiting_input}</p>
+                  </div>
+              </div>
           ) : (
-            <>
-              <Microscope size={14} />
-              <span>{t.diagnosis.analyze_btn}</span>
-            </>
+              <div className="flex flex-col h-full gap-4">
+                  {/* Grade Card */}
+                  <div className={`p-6 rounded-2xl border shadow-lg relative overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                      <div className={`absolute top-0 left-0 w-2 h-full`} style={{ backgroundColor: GRADE_COLORS[analysisResult.grade] }} />
+                      
+                      <div className="flex justify-between items-start mb-4">
+                          <div>
+                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">{t.diagnosis.diagnosis_result}</p>
+                              <h2 className="text-2xl font-black uppercase" style={{ color: GRADE_COLORS[analysisResult.grade] }}>
+                                  {t.diagnosis.grade_labels[analysisResult.grade]}
+                              </h2>
+                          </div>
+                          <div className="text-right">
+                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Confidence</p>
+                              <p className="text-xl font-bold">{(analysisResult.confidence * 100).toFixed(1)}%</p>
+                          </div>
+                      </div>
+
+                      <div className="h-2 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(analysisResult.grade / 4) * 100}%` }}
+                            className="h-full rounded-full"
+                            style={{ backgroundColor: GRADE_COLORS[analysisResult.grade] }}
+                          />
+                      </div>
+                  </div>
+
+                  {/* Gemini Report */}
+                  <div className={`flex-1 p-6 rounded-2xl border shadow-lg overflow-y-auto custom-scrollbar ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                       <div className="flex items-center mb-4">
+                           <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-black italic text-xs mr-3">
+                               AI
+                           </div>
+                           <h3 className="font-bold text-sm uppercase tracking-wide">{t.diagnosis.gemini_analysis}</h3>
+                       </div>
+                       
+                       {isReportGenerating ? (
+                           <div className="flex flex-col items-center justify-center py-10 opacity-60">
+                               <Loader2 className="animate-spin mb-3" size={24} />
+                               <p className="text-xs font-bold uppercase">{t.diagnosis.generating}</p>
+                           </div>
+                       ) : reportData ? (
+                           <div className="space-y-6">
+                               <div>
+                                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Clinical Findings</p>
+                                   <p className="text-sm leading-relaxed opacity-90">{reportData.clinicalNotes}</p>
+                               </div>
+                               <div>
+                                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Patient Communication</p>
+                                   <div className={`p-4 rounded-xl text-sm italic ${isDarkMode ? 'bg-slate-950 border border-slate-800' : 'bg-slate-50 border border-slate-100'}`}>
+                                       "{reportData.patientLetter}"
+                                   </div>
+                               </div>
+                           </div>
+                       ) : null}
+                  </div>
+
+                  {/* Action Bar */}
+                  {selectedPatientId && reportData && (
+                      <motion.button 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        onClick={handleSaveToRecord}
+                        disabled={isSaving}
+                        className="py-4 bg-green-600 hover:bg-green-500 text-white font-bold uppercase text-xs rounded-xl shadow-lg flex items-center justify-center transition-colors disabled:opacity-50"
+                      >
+                         {isSaving ? <Loader2 className="animate-spin mr-2" size={16}/> : <Save className="mr-2" size={16} />}
+                         Save to Patient Record
+                      </motion.button>
+                  )}
+              </div>
           )}
-        </motion.button>
-
-        {isGeneratingReport && (
-            <div className={`mt-3 p-2 rounded text-[10px] flex items-center justify-center animate-pulse uppercase font-mono tracking-tight border ${isDarkMode ? 'bg-red-900/20 text-red-400 border-red-800' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
-                <Loader2 className="w-3 h-3 mr-2 animate-spin" /> Gemini 2.5...
-            </div>
-        )}
-      </div>
-
-      {/* Right Panel: Results - Compacted */}
-      <div className="flex-1 p-4 overflow-y-auto relative custom-scrollbar">
-         
-        {!result ? (
-          <div className="h-full flex flex-col items-center justify-center opacity-50 z-10 relative">
-            <Scan className="w-16 h-16 mb-2 opacity-20" />
-            <p className="text-sm font-black uppercase tracking-widest">{t.diagnosis.awaiting_input}</p>
-          </div>
-        ) : (
-          <div className="max-w-6xl mx-auto space-y-4 relative z-10 h-full flex flex-col">
-            
-            {/* Header Result Card (More Compact) */}
-            <motion.div 
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className={`p-4 border flex flex-col md:flex-row items-center justify-between relative overflow-hidden rounded-xl ${containerClass}`}
-            >
-               {/* Color Bar */}
-               <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: GRADE_COLORS[result.grade] }}></div>
-
-               <div className="flex items-center space-x-4 pl-1">
-                 <div className="relative w-16 h-16">
-                   <ResponsiveContainer width="100%" height="100%">
-                     <PieChart>
-                       <Pie 
-                        data={getConfidenceChartData(result.confidence)} 
-                        innerRadius={22} 
-                        outerRadius={28} 
-                        dataKey="value"
-                        startAngle={90}
-                        endAngle={-270}
-                        stroke="none"
-                       >
-                         {getConfidenceChartData(result.confidence).map((entry, index) => (
-                           <Cell key={`cell-${index}`} fill={entry.fill} />
-                         ))}
-                       </Pie>
-                     </PieChart>
-                   </ResponsiveContainer>
-                   <div className="absolute inset-0 flex items-center justify-center flex-col">
-                      <span className="text-[8px] font-bold uppercase opacity-50">Conf.</span>
-                      <span className="text-sm font-black">{Math.round(result.confidence * 100)}%</span>
-                   </div>
-                 </div>
-
-                 <div>
-                   <p className="text-[9px] uppercase tracking-widest font-bold mb-0.5 opacity-50">{t.diagnosis.diagnosis_result}</p>
-                   <h1 className="text-xl font-black uppercase italic tracking-tighter" style={{ color: GRADE_COLORS[result.grade] }}>
-                       {t.diagnosis.grade_labels[result.grade as 0|1|2|3|4]}
-                   </h1>
-                   <div className="flex items-center space-x-2 mt-1">
-                      <span className={`px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider border rounded ${isDarkMode ? 'bg-slate-800 border-slate-600' : 'bg-slate-100 border-slate-300'}`}>
-                        Grade {result.grade}
-                      </span>
-                   </div>
-                 </div>
-               </div>
-            </motion.div>
-
-            {/* Viewer & Reports Grid - Flexible Height */}
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
-                {/* Image Viewer - Fixed height to avoid overflow */}
-                <motion.div 
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className={`border flex flex-col relative group rounded-xl overflow-hidden h-[300px] lg:h-auto ${isDarkMode ? 'bg-black border-slate-800' : 'bg-slate-900 border-slate-300'}`}
-                >
-                    <div className="absolute top-0 left-0 w-full p-2 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
-                        <h3 className="font-bold text-slate-400 uppercase text-[9px] tracking-widest">{t.diagnosis.scan_source}</h3>
-                        <div className="flex space-x-1">
-                            <button onClick={() => setZoomLevel(Math.max(1, zoomLevel - 0.5))} className="p-1 hover:text-white text-slate-500"><ZoomOut size={12} /></button>
-                            <span className="p-1 text-[9px] font-mono text-red-500">{zoomLevel}x</span>
-                            <button onClick={() => setZoomLevel(Math.min(3, zoomLevel + 0.5))} className="p-1 hover:text-white text-slate-500"><ZoomIn size={12} /></button>
-                        </div>
-                    </div>
-                    
-                    <div className="flex-1 relative overflow-hidden flex items-center justify-center">
-                        {imagePreview && (
-                            <img 
-                                src={imagePreview} 
-                                alt="Fundus" 
-                                className="transition-transform duration-300 ease-out max-w-full max-h-full object-contain filter contrast-125"
-                                style={{ transform: `scale(${zoomLevel})` }}
-                            />
-                        )}
-                    </div>
-                </motion.div>
-
-                {/* Gemini Report */}
-                <motion.div 
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className={`border flex flex-col rounded-xl overflow-hidden h-[300px] lg:h-auto ${containerClass}`}
-                >
-                    <div className={`p-3 border-b flex justify-between items-center ${isDarkMode ? 'bg-slate-800/50 border-slate-800' : 'bg-slate-50 border-slate-100'}`}>
-                        <h3 className="font-bold flex items-center uppercase text-[10px] tracking-wider">
-                            <FileText size={12} className={`mr-1.5 ${accentText}`} /> 
-                            {t.diagnosis.gemini_analysis}
-                        </h3>
-                    </div>
-                    <div className={`flex-1 p-4 overflow-y-auto space-y-4 text-xs font-light custom-scrollbar ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                        {!report ? (
-                            <div className="h-full flex flex-col items-center justify-center space-y-2 opacity-50">
-                                <Loader2 className={`animate-spin ${accentText} w-5 h-5`} />
-                                <span className="uppercase font-bold text-[9px] tracking-widest">{t.diagnosis.generating}</span>
-                            </div>
-                        ) : (
-                            <>
-                                <div>
-                                    <h4 className={`text-[9px] font-bold ${accentText} uppercase tracking-widest mb-1 border-b ${isDarkMode ? 'border-red-900' : 'border-blue-200'} pb-0.5 w-max`}>Clinical</h4>
-                                    <p className="leading-relaxed">{report.clinicalNotes}</p>
-                                </div>
-                                <div className="pt-1">
-                                    <h4 className={`text-[9px] font-bold ${accentText} uppercase tracking-widest mb-1 border-b ${isDarkMode ? 'border-red-900' : 'border-blue-200'} pb-0.5 w-max`}>Communication</h4>
-                                    <div className={`p-3 border-l-2 border-slate-400 rounded-r-lg ${isDarkMode ? 'bg-slate-800/50' : 'bg-slate-50'}`}>
-                                        <p className="italic font-serif">"{report.patientLetter}"</p>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </motion.div>
-            </div>
-
-          </div>
-        )}
-      </div>
+      </motion.div>
     </div>
   );
 };

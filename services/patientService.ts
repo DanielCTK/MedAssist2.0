@@ -1,6 +1,6 @@
 import { db } from "./firebase";
-import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, doc } from "firebase/firestore";
-import { Patient } from "../types";
+import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, doc, arrayUnion, getDoc } from "firebase/firestore";
+import { Patient, DiagnosisRecord } from "../types";
 
 const COLLECTION_NAME = "patients";
 
@@ -33,7 +33,8 @@ export const addPatient = async (patientData: Omit<Patient, "id">) => {
       ...patientData,
       createdAt: serverTimestamp(),
       lastExam: new Date().toISOString().split('T')[0], // Default to today
-      status: patientData.status || 'Active'
+      status: patientData.status || 'Active',
+      diagnosisHistory: [] // Initialize empty history
     });
     return docRef.id;
   } catch (error) {
@@ -51,6 +52,23 @@ export const updatePatient = async (id: string, data: Partial<Patient>) => {
     throw error;
   }
 };
+
+// --- ADD DIAGNOSIS TO HISTORY ---
+export const addPatientDiagnosis = async (patientId: string, diagnosis: DiagnosisRecord) => {
+    try {
+        const patientRef = doc(db, COLLECTION_NAME, patientId);
+        
+        // Push to history array and update lastExam date
+        await updateDoc(patientRef, {
+            diagnosisHistory: arrayUnion(diagnosis),
+            lastExam: diagnosis.date.split('T')[0], // Update last exam date
+            status: diagnosis.grade >= 3 ? 'Critical' : 'Active' // Auto-update status based on severity
+        });
+    } catch (error) {
+        console.error("Error adding diagnosis history:", error);
+        throw error;
+    }
+}
 
 // --- DELETE PATIENT ---
 export const deletePatient = async (id: string) => {

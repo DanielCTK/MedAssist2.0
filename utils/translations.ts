@@ -37,7 +37,38 @@ export const translations = {
         efficiency: "Efficiency"
       },
       schedule: {
-        title: "Daily Schedule"
+        title: "Daily Schedule",
+        timeline: "Timeline",
+        calendar: "Calendar",
+        no_appointments: "No appointments today",
+        add_one: "Add one",
+        no_tasks: "No tasks for this day",
+        modal: {
+          add: "Add Schedule",
+          edit: "Edit Schedule",
+          patient_name: "Patient Name",
+          activity: "Title/Activity",
+          start_time: "Start Time (24h)",
+          duration: "Duration (Hrs)",
+          type: "Type",
+          status: "Status",
+          save: "Save",
+          update: "Update",
+          delete_confirm: "Are you sure you want to delete this appointment?",
+          failed_save: "Failed to save appointment",
+          failed_delete: "Failed to delete"
+        },
+        types: {
+          Diagnosis: "Diagnosis",
+          Consult: "Consult",
+          Surgery: "Surgery",
+          Meeting: "Meeting"
+        },
+        statuses: {
+          Pending: "Pending",
+          "In Progress": "In Progress",
+          Done: "Done"
+        }
       }
     },
     diagnosis: {
@@ -155,7 +186,38 @@ export const translations = {
         efficiency: "Hiệu quả"
       },
       schedule: {
-        title: "Lịch trình hằng ngày"
+        title: "Lịch trình hằng ngày",
+        timeline: "Dòng thời gian",
+        calendar: "Lịch",
+        no_appointments: "Không có cuộc hẹn nào",
+        add_one: "Thêm mới",
+        no_tasks: "Không có nhiệm vụ cho ngày này",
+        modal: {
+          add: "Thêm lịch trình",
+          edit: "Sửa lịch trình",
+          patient_name: "Tên bệnh nhân",
+          activity: "Tiêu đề/Hoạt động",
+          start_time: "Bắt đầu (24h)",
+          duration: "Thời lượng (Giờ)",
+          type: "Loại",
+          status: "Trạng thái",
+          save: "Lưu",
+          update: "Cập nhật",
+          delete_confirm: "Bạn có chắc chắn muốn xóa cuộc hẹn này không?",
+          failed_save: "Lưu thất bại",
+          failed_delete: "Xóa thất bại"
+        },
+        types: {
+          Diagnosis: "Chẩn đoán",
+          Consult: "Tư vấn",
+          Surgery: "Phẫu thuật",
+          Meeting: "Họp"
+        },
+        statuses: {
+          Pending: "Chờ xử lý",
+          "In Progress": "Đang thực hiện",
+          Done: "Hoàn thành"
+        }
       }
     },
     diagnosis: {

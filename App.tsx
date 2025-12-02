@@ -8,6 +8,7 @@ import PatientList from './components/PatientList';
 import Inventory from './components/Inventory';
 import LandingPage from './components/LandingPage';
 import SettingsView from './components/SettingsView';
+import AIChatbot from './components/AIChatbot';
 import { useLanguage } from './contexts/LanguageContext';
 import { auth } from './services/firebase';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
@@ -219,7 +220,8 @@ const App: React.FC = () => {
                         transition={pageTransition}
                         className="relative z-10 h-full max-w-full mx-auto"
                       >
-                        {currentView === 'dashboard' && <Dashboard isDarkMode={isDarkMode} currentUser={currentUser} userProfile={userProfile} />}
+                        {/* Passed setView prop here */}
+                        {currentView === 'dashboard' && <Dashboard isDarkMode={isDarkMode} currentUser={currentUser} userProfile={userProfile} setView={setCurrentView} />}
                         {currentView === 'diagnosis' && <DiagnosisView isDarkMode={isDarkMode} />}
                         {currentView === 'patients' && <PatientList isDarkMode={isDarkMode} />}
                         {currentView === 'inventory' && <Inventory isDarkMode={isDarkMode} />}
@@ -232,6 +234,9 @@ const App: React.FC = () => {
                         )}
                       </motion.div>
                    </AnimatePresence>
+                   
+                   {/* Add Chatbot here */}
+                   <AIChatbot />
                </div>
             </main>
           </motion.div>

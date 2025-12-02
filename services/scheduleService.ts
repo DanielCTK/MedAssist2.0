@@ -1,5 +1,5 @@
 import { db } from "./firebase";
-import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc } from "firebase/firestore";
+import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, orderBy } from "firebase/firestore";
 import { Appointment } from "../types";
 
 const COLLECTION_NAME = "appointments";
@@ -22,6 +22,32 @@ export const subscribeToAppointments = (
             // Client-side sort by startTime
             items.sort((a, b) => a.startTime - b.startTime);
             
+            onData(items);
+        },
+        onError
+    );
+};
+
+// --- GET APPOINTMENTS FOR A DATE RANGE (FOR CHARTS) ---
+export const subscribeToAppointmentsRange = (
+    startDate: string,
+    endDate: string,
+    onData: (appointments: Appointment[]) => void,
+    onError: (error: any) => void
+) => {
+    // Firestore allows range filters on string dates (ISO format YYYY-MM-DD works perfectly)
+    const q = query(
+        collection(db, COLLECTION_NAME), 
+        where("date", ">=", startDate),
+        where("date", "<=", endDate)
+    );
+
+    return onSnapshot(q,
+        (snapshot) => {
+            const items = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            })) as Appointment[];
             onData(items);
         },
         onError
