@@ -1,3 +1,4 @@
+
 export enum DRGrade {
   NoDR = 0,
   Mild = 1,
@@ -24,6 +25,7 @@ export interface AnalysisResult {
   heatmapUrl?: string; // Optional URL if your local model returns a heatmap image
   processingTime: number;
   timestamp: string;
+  advice?: string; // Doctor's advice based on grade
 }
 
 export interface ReportData {
@@ -36,4 +38,14 @@ export interface ChartData {
   value: number;
   fill: string;
   [key: string]: any;
+}
+
+export interface InventoryItem {
+    id: string;
+    name: string;
+    category: 'General' | 'Device' | 'Drops' | 'Protection';
+    price: string;
+    img: string;
+    stock: number;
+    badge: string;
 }

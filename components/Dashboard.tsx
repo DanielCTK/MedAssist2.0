@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
-import { Users, Calendar, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Users, Calendar, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye, Loader2 } from 'lucide-react';
 import { BarChart, Bar, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
+import { subscribeToPatients } from '../services/patientService'; // Use real service
+import { Patient } from '../types';
 
 interface DashboardProps {
     isDarkMode: boolean;
@@ -10,7 +12,7 @@ interface DashboardProps {
 
 const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]; // 8:00 to 17:00
 
-// --- MOCK DATA: DAILY SCHEDULE TIMELINE ---
+// --- MOCK DATA FOR SCHEDULE (Keep mock for demo visual as DB might not have enough date info yet) ---
 const DAILY_SCHEDULE = [
     {
         id: 1,
@@ -43,18 +45,9 @@ const DAILY_SCHEDULE = [
         activities: [
             { type: 'Test', label: 'Blood Test', start: 8, duration: 2, color: 'bg-slate-400' }
         ]
-    },
-    {
-        id: 5,
-        patientName: 'Hoang Tuan',
-        avatar: 'https://i.pravatar.cc/150?u=5',
-        activities: [
-            { type: 'Scan AI', label: 'OCT Scan', start: 14.5, duration: 2, color: 'bg-blue-500' }
-        ]
     }
 ];
 
-// --- MOCK DATA: DOCTOR AGENDA ---
 const DOCTOR_AGENDA = [
     { time: '08:30', title: 'Morning Briefing', type: 'Meeting', status: 'Done' },
     { time: '09:00', title: 'Scan (Nguyen Van A)', type: 'Diagnosis', status: 'In Progress' },
@@ -64,7 +57,19 @@ const DOCTOR_AGENDA = [
 
 const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
   const [viewMode, setViewMode] = useState<'personal' | 'department'>('personal');
+  const [patientCount, setPatientCount] = useState<number | null>(null); // Real count
   const { t, language } = useLanguage();
+  
+  // Real-time Fetch
+  useEffect(() => {
+    const unsubscribe = subscribeToPatients(
+        (data) => {
+            setPatientCount(data.length);
+        },
+        (err) => console.error("Dash error", err)
+    );
+    return () => unsubscribe();
+  }, []);
   
   // Theme Helpers
   const cardClass = isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-100 text-slate-900 shadow-lg shadow-blue-50";
@@ -84,7 +89,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
     show: { opacity: 1, y: 0 }
   };
 
-  // 1. WELCOME BANNER (Updated with Image Background)
+  // 1. WELCOME BANNER
   const WelcomeBanner = () => {
     // Image: Foggy Mountains (Zen/Serene)
     const bannerImage = "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=2070&auto=format&fit=crop";
@@ -95,17 +100,12 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
             animate={{ opacity: 1, scale: 1 }}
             className={`relative w-full h-28 rounded-xl overflow-hidden mb-4 flex items-center shadow-xl ${isDarkMode ? 'shadow-black/50' : 'shadow-slate-300'}`}
         >
-            {/* Background Image */}
             <img 
                 src={bannerImage} 
                 alt="Banner" 
                 className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 hover:scale-105"
             />
-            
-            {/* Gradient Overlays for Readability */}
             <div className={`absolute inset-0 bg-gradient-to-r ${isDarkMode ? 'from-black/90 via-black/50 to-transparent' : 'from-slate-900/80 via-slate-900/40 to-transparent'}`}></div>
-            
-            {/* Japanese Pattern Overlay (Subtle) */}
             <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/asfalt-dark.png')] mix-blend-overlay"></div>
             
             <div className="relative z-10 px-6 flex justify-between items-center w-full">
@@ -126,7 +126,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                     </div>
                 </div>
                  
-                 {/* 3D Illustration floating on the right */}
                  <div className="hidden md:block h-24 w-24 relative transform translate-y-2 translate-x-2">
                      <img 
                         src="https://cdni.iconscout.com/illustration/premium/thumb/medical-team-illustration-download-in-svg-png-gif-file-formats--doctor-nurse-healthcare-hospital-staff-pack-people-illustrations-4328578.png" 
@@ -176,7 +175,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode }) => {
                         <div className="grid grid-cols-2 gap-2 relative z-10">
                             <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
                                 <p className={`text-[8px] font-bold uppercase ${textMuted}`}>{t.dashboard.profile.patients}</p>
-                                <p className={`text-sm font-black ${themeColor}`}>1,204</p>
+                                <p className={`text-sm font-black ${themeColor}`}>
+                                    {patientCount !== null ? patientCount : <Loader2 size={12} className="animate-spin inline"/>}
+                                </p>
                             </div>
                             <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
                                 <p className={`text-[8px] font-bold uppercase ${textMuted}`}>{t.dashboard.profile.surgery}</p>

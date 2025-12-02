@@ -37,7 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isDarkMode, onL
             +
           </div>
           <h1 className="text-xl font-bold tracking-tight">
-            Symptra
+            MedAssist
           </h1>
         </div>
       </div>

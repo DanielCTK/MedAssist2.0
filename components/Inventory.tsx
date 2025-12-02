@@ -1,30 +1,56 @@
-import React from 'react';
-import { Search, Plus, Filter, Tag, Package } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Plus, Filter, Tag, Package, Loader2, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
+import { InventoryItem } from '../types';
+import { subscribeToInventory, updateStock, seedInventory } from '../services/inventoryService';
 
 interface InventoryProps {
     isDarkMode: boolean;
 }
 
-const products = [
-    { id: 1, name: 'Panadol Extra', category: 'General', price: '150k', img: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=300&q=80', stock: 24, badge: 'Pain' },
-    { id: 2, name: 'Insulin Pen', category: 'Device', price: '450k', img: 'https://images.unsplash.com/photo-1631549916768-4119b2e5f926?auto=format&fit=crop&w=300&q=80', stock: 12, badge: 'Diabetes' },
-    { id: 3, name: 'V.Rohto', category: 'Drops', price: '50k', img: 'https://images.unsplash.com/photo-1603398938378-e54eab446dde?auto=format&fit=crop&w=300&q=80', stock: 100, badge: 'Eye' },
-    { id: 4, name: 'Oximeter', category: 'Device', price: '220k', img: 'https://images.unsplash.com/photo-1583947581924-860bda6a26df?auto=format&fit=crop&w=300&q=80', stock: 15, badge: 'Monitor' },
-    { id: 5, name: 'Mask N95', category: 'Protection', price: '25k', img: 'https://images.unsplash.com/photo-1584634731339-252c581abfc5?auto=format&fit=crop&w=300&q=80', stock: 500, badge: 'PPE' },
-    { id: 6, name: 'Vitamin C', category: 'General', price: '80k', img: 'https://images.unsplash.com/photo-1550572017-edd951aa8f72?auto=format&fit=crop&w=300&q=80', stock: 80, badge: 'Supp' },
-    { id: 7, name: 'Bandage', category: 'Device', price: '20k', img: 'https://images.unsplash.com/photo-1563721349076-78b17b69c762?auto=format&fit=crop&w=300&q=80', stock: 200, badge: 'Aid' },
-    { id: 8, name: 'Antibiotics', category: 'General', price: '120k', img: 'https://images.unsplash.com/photo-1471864190281-a93a3070b6de?auto=format&fit=crop&w=300&q=80', stock: 45, badge: 'Rx' },
-];
-
 const Inventory: React.FC<InventoryProps> = ({ isDarkMode }) => {
   const { t } = useLanguage();
+  const [products, setProducts] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Real-time subscription
+  useEffect(() => {
+    const unsubscribe = subscribeToInventory(
+        (data) => {
+            setProducts(data);
+            setLoading(false);
+        },
+        (err) => {
+            console.error(err);
+            if (err.code === 'permission-denied') {
+                setError("Permission Denied: Update Firestore Rules.");
+            }
+            setLoading(false);
+        }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Simple handler to simulate adding stock (real database update)
+  const handleAddStock = async (id: string, currentStock: number) => {
+      try {
+          await updateStock(id, currentStock + 10);
+      } catch (err) {
+          alert("Failed to update stock");
+      }
+  };
+
+  const handleSeed = async () => {
+      setLoading(true);
+      await seedInventory();
+      setLoading(false);
+  }
   
   // Styles
   const cardBg = isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 shadow-sm";
   const textMain = isDarkMode ? "text-white" : "text-slate-900";
-  const textSub = isDarkMode ? "text-slate-400" : "text-slate-500";
   const searchBg = isDarkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200";
   const themeBtn = isDarkMode ? "bg-red-600 text-white shadow-lg shadow-red-500/30" : "bg-blue-600 text-white shadow-lg shadow-blue-500/30";
   const themeHover = isDarkMode ? "hover:bg-red-600" : "hover:bg-blue-600";
@@ -32,9 +58,13 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode }) => {
 
   const filterLabels = [t.inventory.filters.all, t.inventory.filters.meds, t.inventory.filters.device, t.inventory.filters.ppe];
 
+  if (error) {
+      return <div className="p-10 text-center text-red-500 font-bold">{error}</div>;
+  }
+
   return (
     <div className="h-full flex flex-col space-y-4">
-        {/* Header (More compact) */}
+        {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-end gap-2">
             <div>
                 <motion.h1 
@@ -42,7 +72,8 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode }) => {
                     animate={{ opacity: 1, x: 0 }}
                     className={`text-lg font-bold flex items-center ${textMain}`}
                 >
-                    {t.inventory.title} <span className={`ml-2 px-1.5 py-0.5 rounded-full ${themeBadge} text-[8px] text-white`}>BETA</span>
+                    {t.inventory.title} 
+                    {loading && <Loader2 className="ml-2 animate-spin" size={16}/>}
                 </motion.h1>
             </div>
             
@@ -51,7 +82,7 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode }) => {
                 <input 
                     type="text" 
                     placeholder={t.inventory.search} 
-                    className="bg-transparent outline-none w-full text-[10px]"
+                    className="bg-transparent outline-none w-full text-[10px] text-slate-500"
                 />
             </div>
         </div>
@@ -73,6 +104,20 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode }) => {
                 </motion.button>
             ))}
         </div>
+
+        {/* Empty State / Seed Button */}
+        {!loading && products.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 opacity-70">
+                <Package size={48} className="mb-4 text-slate-500" />
+                <p className="mb-4 text-xs font-bold uppercase text-slate-500">Inventory Empty</p>
+                <button 
+                    onClick={handleSeed}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center ${cardBg} hover:brightness-110`}
+                >
+                    <RefreshCw size={14} className="mr-2"/> Load Demo Data
+                </button>
+            </div>
+        )}
 
         {/* Grid - 5 columns on large screens to save space */}
         <motion.div 
@@ -131,9 +176,10 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode }) => {
                         <motion.button 
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
+                            onClick={(e) => { e.stopPropagation(); handleAddStock(item.id, item.stock); }}
                             className={`w-full py-1.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[10px] ${themeHover} hover:text-white transition-colors flex items-center justify-center`}
                         >
-                            <Plus size={12} className="mr-1" /> {t.inventory.add}
+                            <Plus size={12} className="mr-1" /> {t.inventory.add} Stock
                         </motion.button>
                     </div>
                 </motion.div>
