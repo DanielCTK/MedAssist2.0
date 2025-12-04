@@ -32,6 +32,7 @@ export interface DiagnosisRecord {
 
 export interface Patient {
   id: string;
+  doctorUid: string; // New: Links patient to a specific doctor
   name: string;
   age: number;
   gender: 'Male' | 'Female' | 'Other';
@@ -81,6 +82,7 @@ export interface InventoryItem {
 
 export interface Appointment {
     id: string;
+    patientId?: string; // Link to Patient ID
     patientName: string;
     title: string;
     type: 'Diagnosis' | 'Consult' | 'Surgery' | 'Meeting';
@@ -89,4 +91,29 @@ export interface Appointment {
     status: 'Pending' | 'In Progress' | 'Done';
     date: string;
     notes?: string;
+}
+
+// --- CHAT INTERFACES ---
+export interface ChatMessage {
+    id: string;
+    text: string;
+    senderId: string;
+    createdAt: any; // Firestore Timestamp
+}
+
+export interface ChatUser extends UserProfile {
+    // Extended properties for chat UI if needed
+    status?: 'online' | 'offline';
+}
+
+export interface ChatSession {
+    id: string; // The chat ID (uid1_uid2)
+    participants: string[];
+    lastMessage?: {
+        text: string;
+        senderId: string;
+        timestamp: any;
+        seen: boolean;
+    };
+    updatedAt: any;
 }

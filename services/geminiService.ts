@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, DRGrade, Patient, ReportData } from "../types";
 
 // NOTE: In a real production app, API calls should be routed through a backend to hide the key.
@@ -31,8 +31,6 @@ export const generateClinicalReport = async (
   const gradeText = getGradeName(analysis.grade);
   
   const prompt = `
-    You are an expert ophthalmologist assistant. 
-    
     Context:
     A deep learning model has analyzed a fundus image for patient ${patient.name} (Age: ${patient.age}, Gender: ${patient.gender}).
     Patient History: ${patient.history}.
@@ -45,8 +43,6 @@ export const generateClinicalReport = async (
     Generate a JSON object with two fields:
     1. "clinicalNotes": A professional, concise paragraph for a doctor's medical record, summarizing the automated finding and suggesting standard next steps (e.g., follow-up duration, OCT scan needed) based on the severity.
     2. "patientLetter": A gentle, easy-to-understand paragraph addressed to the patient explaining the result and what they should do next. Avoid overly alarming language but be clear about urgency if severe.
-    
-    Return ONLY raw JSON.
   `;
 
   try {
@@ -54,7 +50,16 @@ export const generateClinicalReport = async (
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            clinicalNotes: { type: Type.STRING },
+            patientLetter: { type: Type.STRING }
+          },
+          required: ["clinicalNotes", "patientLetter"]
+        },
+        systemInstruction: "You are an expert ophthalmologist assistant."
       }
     });
 

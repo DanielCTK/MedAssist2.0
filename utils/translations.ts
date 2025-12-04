@@ -25,10 +25,10 @@ export const translations = {
       },
       quick_actions: {
         title: "Quick Actions",
-        diagnosis: "Diagnosis",
-        report: "Report",
-        telehealth: "Tele-Health",
-        consult: "Consult"
+        chat_patient: "Chat Patient",
+        chat_doctor: "Chat Doctor",
+        mini_report: "Mini Report",
+        emergency: "Emergency"
       },
       stats: {
         title: "Patient Activity",
@@ -174,10 +174,10 @@ export const translations = {
       },
       quick_actions: {
         title: "Tác vụ nhanh",
-        diagnosis: "Chẩn đoán",
-        report: "Báo cáo",
-        telehealth: "Khám từ xa",
-        consult: "Tư vấn"
+        chat_patient: "Chat Khách Hàng",
+        chat_doctor: "Chat Bác Sĩ",
+        mini_report: "Báo Cáo Nhanh",
+        emergency: "Khẩn Cấp"
       },
       stats: {
         title: "Hoạt động bệnh nhân",

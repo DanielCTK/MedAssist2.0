@@ -7,6 +7,7 @@ import { subscribeToPatients, addPatientDiagnosis } from '../services/patientSer
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
+import { auth } from '../services/firebase';
 
 interface DiagnosisViewProps {
     isDarkMode: boolean;
@@ -34,15 +35,19 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useLanguage();
+  const currentUser = auth.currentUser;
 
   // Load patients for the dropdown
   useEffect(() => {
-      const unsubscribe = subscribeToPatients(
-          (data) => setPatients(data),
-          (err) => console.error(err)
-      );
-      return () => unsubscribe();
-  }, []);
+      if (currentUser) {
+          const unsubscribe = subscribeToPatients(
+              currentUser.uid,
+              (data) => setPatients(data),
+              (err) => console.error(err)
+          );
+          return () => unsubscribe();
+      }
+  }, [currentUser]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -146,7 +151,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
                     value={selectedPatientId}
                     onChange={(e) => setSelectedPatientId(e.target.value)}
                     className={`appearance-none pl-8 pr-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border outline-none cursor-pointer transition-colors ${
-                        isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-blue-500' : 'bg-slate-100 border-slate-200 focus:border-blue-500'
+                        isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-blue-500 text-white' : 'bg-slate-100 border-slate-200 focus:border-blue-500 text-slate-900'
                     }`}
                   >
                       <option value="">-- {t.diagnosis.select_placeholder} --</option>
@@ -210,7 +215,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
                     ? 'bg-slate-700 cursor-not-allowed opacity-50' 
                     : isAnalyzing 
                         ? 'bg-blue-700 cursor-wait' 
-                        : 'bg-blue-600 hover:bg-blue-500 hover:scale-[1.02]'
+                        : 'bg-blue-600 hover:bg-blue-50 hover:scale-[1.02]'
                 } text-white`}
               >
                   {isAnalyzing ? (

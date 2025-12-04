@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, X, Send, Loader2, Sparkles, Bot, User } from 'lucide-react';
+import { MessageSquare, X, Send, Loader2, Sparkles, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Chat } from "@google/genai";
 
 interface Message {
     id: string;
@@ -18,6 +18,7 @@ const AIChatbot: React.FC = () => {
         { id: '1', text: "Hello Doctor. I am MedAssist AI. How can I help you with patient data or medical queries today?", sender: 'ai', timestamp: new Date() }
     ]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const chatSessionRef = useRef<Chat | null>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -26,6 +27,26 @@ const AIChatbot: React.FC = () => {
     useEffect(() => {
         scrollToBottom();
     }, [messages, isOpen]);
+
+    // Initialize Chat Session
+    useEffect(() => {
+        const apiKey = process.env.API_KEY;
+        if (apiKey) {
+            try {
+                const ai = new GoogleGenAI({ apiKey });
+                chatSessionRef.current = ai.chats.create({
+                    model: 'gemini-2.5-flash',
+                    config: {
+                        systemInstruction: `You are MedAssist AI, a helpful virtual assistant for doctors. 
+                        Keep answers concise, professional, and medically relevant. 
+                        If asked about patients, remind the user you have limited access to real-time database for privacy, but can explain medical terms, drug interactions, or general procedures.`
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to initialize AI chat", e);
+            }
+        }
+    }, []);
 
     const handleSend = async () => {
         if (!input.trim()) return;
@@ -36,24 +57,21 @@ const AIChatbot: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const apiKey = process.env.API_KEY;
-            if (!apiKey) throw new Error("API Key missing");
+            if (!chatSessionRef.current) {
+                // Try to re-init if failed initially (e.g. if env was delayed)
+                const apiKey = process.env.API_KEY;
+                if (!apiKey) throw new Error("API Key missing");
+                const ai = new GoogleGenAI({ apiKey });
+                chatSessionRef.current = ai.chats.create({
+                    model: 'gemini-2.5-flash',
+                    config: {
+                        systemInstruction: `You are MedAssist AI, a helpful virtual assistant for doctors. 
+                        Keep answers concise, professional, and medically relevant.`
+                    }
+                });
+            }
 
-            const ai = new GoogleGenAI({ apiKey });
-            
-            // Context prompt for the medical assistant
-            const systemInstruction = `You are MedAssist AI, a helpful virtual assistant for doctors. 
-            Keep answers concise, professional, and medically relevant. 
-            If asked about patients, remind the user you have limited access to real-time database for privacy, but can explain medical terms, drug interactions, or general procedures.`;
-
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: input,
-                config: {
-                    systemInstruction: systemInstruction,
-                }
-            });
-
+            const response = await chatSessionRef.current.sendMessage({ message: userMsg.text });
             const aiText = response.text || "I'm sorry, I couldn't process that.";
             
             setMessages(prev => [...prev, { 

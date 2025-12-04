@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera } from 'lucide-react';
 import { Patient, DRGrade } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
-import { subscribeToPatients, addPatient } from '../services/patientService';
+import { subscribeToPatients, addPatient, updatePatient, deletePatient } from '../services/patientService';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { auth } from '../services/firebase';
 
 interface PatientListProps {
     isDarkMode: boolean;
@@ -15,9 +16,17 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // View State (Grid vs List)
+  const [viewType, setViewType] = useState<'grid' | 'table'>('table');
+  
   // Navigation State
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   
+  // Edit State (New)
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<Partial<Patient>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Add Patient Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newPatient, setNewPatient] = useState<Partial<Patient>>({
@@ -26,17 +35,30 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const [isSaving, setIsSaving] = useState(false);
 
   const { t } = useLanguage();
+  const currentUser = auth.currentUser;
 
   useEffect(() => {
-    const unsubscribe = subscribeToPatients(
-        (data) => {
-            setPatients(data);
-            setLoading(false);
-        },
-        (err) => console.error(err)
-    );
-    return () => unsubscribe();
-  }, []);
+    if (currentUser) {
+        const unsubscribe = subscribeToPatients(
+            currentUser.uid,
+            (data) => {
+                setPatients(data);
+                setLoading(false);
+            },
+            (err) => console.error(err)
+        );
+        return () => unsubscribe();
+    }
+  }, [currentUser]);
+
+  // Sync editForm with active patient when selected or data changes
+  const activePatient = useMemo(() => patients.find(p => p.id === selectedPatientId), [patients, selectedPatientId]);
+  
+  useEffect(() => {
+      if (activePatient && !isEditing) {
+          setEditForm(activePatient);
+      }
+  }, [activePatient, isEditing]);
 
   const filteredPatients = useMemo(() => {
     return patients.filter(patient => 
@@ -47,10 +69,10 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
 
   const handleSavePatient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPatient.name || !newPatient.age) return;
+    if (!newPatient.name || !newPatient.age || !currentUser) return;
     setIsSaving(true);
     try {
-        await addPatient({
+        await addPatient(currentUser.uid, {
             name: newPatient.name,
             age: Number(newPatient.age),
             gender: newPatient.gender as any,
@@ -69,13 +91,53 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
     }
   };
 
-  const activePatient = patients.find(p => p.id === selectedPatientId);
+  const handleUpdatePatient = async () => {
+      if (!selectedPatientId || !editForm.name) return;
+      setIsSaving(true);
+      try {
+          await updatePatient(selectedPatientId, editForm);
+          setIsEditing(false);
+      } catch (err: any) {
+          alert("Update failed: " + err.message);
+      } finally {
+          setIsSaving(false);
+      }
+  };
 
-  // Helper to format chart data from diagnosis history
+  const handleDeletePatient = async () => {
+      if (!selectedPatientId) return;
+      if (confirm("Are you sure you want to delete this patient permanently? This action cannot be undone.")) {
+          try {
+              await deletePatient(selectedPatientId);
+              setSelectedPatientId(null);
+          } catch (err: any) {
+              alert("Delete failed: " + err.message);
+          }
+      }
+  };
+
+  const handleCancelEdit = () => {
+      setIsEditing(false);
+      if (activePatient) setEditForm(activePatient);
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
+          const reader = new FileReader();
+          
+          reader.onloadend = () => {
+              const base64String = reader.result as string;
+              setEditForm({ ...editForm, avatarUrl: base64String });
+          };
+          
+          reader.readAsDataURL(file);
+      }
+  };
+
   const chartData = useMemo(() => {
       if (!activePatient || !activePatient.diagnosisHistory) return [];
       
-      // Sort history by date
       const history = [...activePatient.diagnosisHistory].sort((a,b) => 
           new Date(a.date).getTime() - new Date(b.date).getTime()
       );
@@ -87,14 +149,14 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
       }));
   }, [activePatient]);
 
-  // Styles
-  const bgClass = isDarkMode ? "bg-slate-900 text-white" : "bg-white text-slate-900";
   const cardBorder = isDarkMode ? "border-slate-800" : "border-slate-100";
   const subText = isDarkMode ? "text-slate-400" : "text-slate-500";
   const accentText = isDarkMode ? "text-red-400" : "text-blue-600";
   const cardBg = isDarkMode ? "bg-slate-950/50" : "bg-slate-50";
+  const inputClass = isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200 text-slate-900";
+  const tableHeaderClass = isDarkMode ? "bg-slate-900/50 text-slate-400" : "bg-slate-50 text-slate-500";
+  const tableRowHover = isDarkMode ? "hover:bg-slate-800/50" : "hover:bg-slate-50";
 
-  // --- DETAIL VIEW ---
   if (selectedPatientId && activePatient) {
       return (
           <motion.div 
@@ -102,11 +164,9 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
             animate={{ opacity: 1, x: 0 }}
             className="h-full flex flex-col md:flex-row gap-6 p-2"
           >
-              {/* LEFT COLUMN: PROFILE CARD */}
               <div className="w-full md:w-1/3 flex flex-col gap-6">
-                  {/* Back Button */}
                   <button 
-                    onClick={() => setSelectedPatientId(null)}
+                    onClick={() => { setSelectedPatientId(null); setIsEditing(false); }}
                     className={`flex items-center text-xs font-bold uppercase tracking-widest ${subText} hover:${accentText} transition-colors mb-2`}
                   >
                       <ChevronLeft size={14} className="mr-1" /> Back to List
@@ -115,43 +175,144 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                   <div className={`p-6 rounded-3xl shadow-xl border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} relative overflow-hidden`}>
                       <div className="flex flex-col items-center text-center">
                           <div className="relative mb-4">
-                              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-lg">
+                              <div 
+                                className={`w-24 h-24 rounded-full overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-lg group relative ${isEditing ? 'cursor-pointer' : ''}`}
+                                onClick={() => isEditing && fileInputRef.current?.click()}
+                              >
                                   <img 
-                                    src={activePatient.avatarUrl || "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop"} 
+                                    src={(isEditing && editForm.avatarUrl) ? editForm.avatarUrl : (activePatient.avatarUrl || "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop")} 
                                     alt="Profile" 
-                                    className="w-full h-full object-cover"
+                                    className={`w-full h-full object-cover transition-all ${isEditing ? 'group-hover:opacity-50' : ''}`}
                                   />
+                                  {isEditing && (
+                                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                        <Camera className="text-white" size={24}/>
+                                    </div>
+                                  )}
                               </div>
+                              <input 
+                                type="file" 
+                                ref={fileInputRef} 
+                                className="hidden" 
+                                accept="image/*"
+                                onChange={handleAvatarChange}
+                              />
+
                               <div className={`absolute bottom-1 right-1 w-6 h-6 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 ${activePatient.status === 'Critical' ? 'bg-red-500' : 'bg-green-500'}`}>
                                   <Activity size={12} className="text-white" />
                               </div>
                           </div>
                           
-                          <h2 className="text-2xl font-black">{activePatient.name}</h2>
-                          <p className={`text-sm ${subText} font-medium mb-6`}>{activePatient.age} years, {activePatient.gender}</p>
+                          {isEditing ? (
+                              <div className="w-full space-y-2 mb-4">
+                                  <input 
+                                    type="text" 
+                                    value={editForm.name || ''} 
+                                    onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                                    className={`w-full text-center font-black text-xl p-1 rounded border ${inputClass}`}
+                                    placeholder="Patient Name"
+                                  />
+                                  <div className="flex justify-center gap-2">
+                                      <input 
+                                        type="number" 
+                                        value={editForm.age || ''}
+                                        onChange={(e) => setEditForm({...editForm, age: Number(e.target.value)})}
+                                        className={`w-20 text-center text-sm p-1 rounded border ${inputClass}`}
+                                        placeholder="Age"
+                                      />
+                                      <select
+                                        value={editForm.gender || 'Male'}
+                                        onChange={(e) => setEditForm({...editForm, gender: e.target.value as any})}
+                                        className={`w-24 text-center text-sm p-1 rounded border ${inputClass}`}
+                                      >
+                                          <option value="Male">Male</option>
+                                          <option value="Female">Female</option>
+                                          <option value="Other">Other</option>
+                                      </select>
+                                  </div>
+                              </div>
+                          ) : (
+                              <>
+                                <h2 className="text-2xl font-black">{activePatient.name}</h2>
+                                <p className={`text-sm ${subText} font-medium mb-6`}>{activePatient.age} years, {activePatient.gender}</p>
+                              </>
+                          )}
 
                           <div className="grid grid-cols-3 gap-4 w-full mb-8">
                               <div className="flex flex-col items-center">
                                   <span className={`text-[10px] font-bold uppercase tracking-widest ${subText} mb-1`}>Blood</span>
-                                  <span className="text-lg font-black">{activePatient.bloodType || 'O+'}</span>
+                                  {isEditing ? (
+                                      <input 
+                                        type="text" 
+                                        value={editForm.bloodType || ''}
+                                        onChange={(e) => setEditForm({...editForm, bloodType: e.target.value})}
+                                        className={`w-full text-center font-black p-1 rounded border ${inputClass}`}
+                                      />
+                                  ) : (
+                                      <span className="text-lg font-black">{activePatient.bloodType || 'O+'}</span>
+                                  )}
                               </div>
                               <div className="flex flex-col items-center border-x border-slate-100 dark:border-slate-800">
                                   <span className={`text-[10px] font-bold uppercase tracking-widest ${subText} mb-1`}>Height</span>
-                                  <span className="text-lg font-black">{activePatient.height || '170'} <span className="text-xs font-normal text-slate-400">cm</span></span>
+                                  {isEditing ? (
+                                      <input 
+                                        type="number" 
+                                        value={editForm.height || ''}
+                                        onChange={(e) => setEditForm({...editForm, height: Number(e.target.value)})}
+                                        className={`w-full text-center font-black p-1 rounded border ${inputClass}`}
+                                      />
+                                  ) : (
+                                      <span className="text-lg font-black">{activePatient.height || '170'} <span className="text-xs font-normal text-slate-400">cm</span></span>
+                                  )}
                               </div>
                               <div className="flex flex-col items-center">
                                   <span className={`text-[10px] font-bold uppercase tracking-widest ${subText} mb-1`}>Weight</span>
-                                  <span className="text-lg font-black">{activePatient.weight || '65'} <span className="text-xs font-normal text-slate-400">kg</span></span>
+                                  {isEditing ? (
+                                      <input 
+                                        type="number" 
+                                        value={editForm.weight || ''}
+                                        onChange={(e) => setEditForm({...editForm, weight: Number(e.target.value)})}
+                                        className={`w-full text-center font-black p-1 rounded border ${inputClass}`}
+                                      />
+                                  ) : (
+                                      <span className="text-lg font-black">{activePatient.weight || '65'} <span className="text-xs font-normal text-slate-400">kg</span></span>
+                                  )}
                               </div>
                           </div>
 
-                          <button className={`w-full py-3 rounded-xl font-bold uppercase text-xs tracking-widest ${isDarkMode ? 'bg-white text-black hover:bg-slate-200' : 'bg-black text-white hover:bg-slate-800'} transition-colors`}>
-                              Edit Profile
-                          </button>
+                          {isEditing ? (
+                              <div className="w-full flex gap-2">
+                                  <button 
+                                    onClick={handleUpdatePatient}
+                                    disabled={isSaving}
+                                    className={`flex-1 py-3 rounded-xl font-bold uppercase text-xs tracking-widest text-white flex items-center justify-center gap-2 transition-colors ${isDarkMode ? 'bg-green-600 hover:bg-green-500' : 'bg-green-600 hover:bg-green-500'}`}
+                                  >
+                                      {isSaving ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>} Save
+                                  </button>
+                                  <button 
+                                    onClick={handleCancelEdit}
+                                    className={`py-3 px-4 rounded-xl font-bold uppercase text-xs tracking-widest bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors`}
+                                  >
+                                      <X size={16} />
+                                  </button>
+                                  <button 
+                                    onClick={handleDeletePatient}
+                                    className={`py-3 px-4 rounded-xl font-bold uppercase text-xs tracking-widest text-white bg-red-600 hover:bg-red-500 transition-colors`}
+                                  >
+                                      <Trash2 size={16} />
+                                  </button>
+                              </div>
+                          ) : (
+                              <button 
+                                onClick={() => setIsEditing(true)}
+                                className={`w-full py-3 rounded-xl font-bold uppercase text-xs tracking-widest ${isDarkMode ? 'bg-white text-black hover:bg-slate-200' : 'bg-black text-white hover:bg-slate-800'} transition-colors flex items-center justify-center gap-2`}
+                              >
+                                  <Edit2 size={14} /> Edit Profile
+                              </button>
+                          )}
                       </div>
                   </div>
 
-                  {/* Notifications Card */}
                   <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
                       <div className="flex justify-between items-center mb-4">
                           <h3 className="font-bold text-sm">Notifications</h3>
@@ -170,10 +331,8 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                   </div>
               </div>
 
-              {/* RIGHT COLUMN: MAIN CONTENT */}
               <div className="w-full md:w-2/3 flex flex-col gap-6">
                   
-                  {/* EXAMINATIONS LIST (Horizontal Scroll) */}
                   <div>
                       <div className="flex justify-between items-center mb-4">
                           <h3 className={`text-xl font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>Examinations</h3>
@@ -199,7 +358,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                               <div className="text-sm text-slate-500 italic p-4">No examination history found.</div>
                           )}
                           
-                          {/* Add New Placeholder */}
                           <div 
                             className={`min-w-[60px] flex items-center justify-center rounded-xl border-2 border-dashed cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}
                             onClick={() => alert("Please go to Diagnosis tab to add new scan")}
@@ -209,7 +367,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                       </div>
                   </div>
 
-                  {/* HEALTH CURVE CHART */}
                   <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
                       <div className="flex justify-between items-center mb-6">
                           <h3 className={`text-xl font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>Health Curve</h3>
@@ -249,16 +406,13 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                       </div>
                   </div>
 
-                  {/* BOTTOM ROW: NEAREST TREATMENT & ADVICE */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Nearest Treatment */}
                       <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
                           <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-4`}>Nearest Treatment</h3>
                           <div className="flex justify-between items-center mb-4">
                               <span className="font-bold text-sm">August 2024</span>
                               <ArrowUpRight size={16} />
                           </div>
-                          {/* Mini Calendar Strip Mockup */}
                           <div className="flex justify-between text-center">
                               {[26, 27, 28, 29, 30, 31, 1].map((d, i) => (
                                   <div key={i} className={`flex flex-col items-center gap-1 ${d === 29 ? 'font-black' : 'opacity-50'}`}>
@@ -272,9 +426,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                           </div>
                       </div>
 
-                      {/* Advice */}
                       <div className={`p-6 rounded-3xl shadow-lg border relative overflow-hidden ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
-                          {/* Decorative plant graphic can be added via CSS background or SVG */}
                           <div className="relative z-10">
                               <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-2`}>Advice</h3>
                               <p className={`text-xs ${subText} mb-4 leading-relaxed line-clamp-3`}>
@@ -292,14 +444,12 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
       );
   }
 
-  // --- LIST VIEW (DEFAULT) ---
   return (
     <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         className="h-full flex flex-col space-y-6 relative p-2"
     >
-      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
          <div className="flex items-center space-x-3">
              <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t.patients.title}</h1>
@@ -315,6 +465,22 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                     className="ml-2 bg-transparent outline-none text-sm w-full"
                 />
              </div>
+
+             <div className={`flex items-center p-1 rounded-full border ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+                 <button 
+                    onClick={() => setViewType('table')}
+                    className={`p-2 rounded-full transition-all ${viewType === 'table' ? (isDarkMode ? 'bg-slate-700 text-white' : 'bg-slate-200 text-black') : subText}`}
+                 >
+                     <ListIcon size={16} />
+                 </button>
+                 <button 
+                    onClick={() => setViewType('grid')}
+                    className={`p-2 rounded-full transition-all ${viewType === 'grid' ? (isDarkMode ? 'bg-slate-700 text-white' : 'bg-slate-200 text-black') : subText}`}
+                 >
+                     <LayoutGrid size={16} />
+                 </button>
+             </div>
+
              <motion.button 
                 whileHover={{ scale: 1.05 }} 
                 whileTap={{ scale: 0.95 }} 
@@ -326,55 +492,130 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
          </div>
       </div>
 
-      {/* Patients Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 overflow-y-auto pb-10">
-          <AnimatePresence>
-            {filteredPatients.map((patient) => (
+      <div className="flex-1 overflow-y-auto pb-10">
+          <AnimatePresence mode="wait">
+            {viewType === 'grid' ? (
                 <motion.div 
-                    key={patient.id} 
-                    layout
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    whileHover={{ y: -5, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)" }}
-                    onClick={() => setSelectedPatientId(patient.id)}
-                    className={`p-6 rounded-3xl border cursor-pointer relative group transition-all duration-300 ${cardBorder} ${isDarkMode ? 'bg-slate-900 text-white hover:border-red-500' : 'bg-white text-slate-900 hover:border-blue-500'}`}
+                    key="grid"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6"
                 >
-                    <div className="flex justify-between items-start mb-4">
-                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-xl shadow-lg ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                            {patient.name.charAt(0)}
-                         </div>
-                         <div className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${patient.status === 'Critical' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
-                             {patient.status}
-                         </div>
-                    </div>
-                    
-                    <h3 className="font-bold text-lg mb-1">{patient.name}</h3>
-                    <p className={`text-xs ${subText} mb-4 font-medium`}>ID: {patient.id.substring(0,8)}</p>
+                    {filteredPatients.map((patient) => (
+                        <motion.div 
+                            key={patient.id} 
+                            layout
+                            whileHover={{ y: -5, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)" }}
+                            onClick={() => setSelectedPatientId(patient.id)}
+                            className={`p-6 rounded-3xl border cursor-pointer relative group transition-all duration-300 ${cardBorder} ${isDarkMode ? 'bg-slate-900 text-white hover:border-red-500' : 'bg-white text-slate-900 hover:border-blue-500'}`}
+                        >
+                             <div className="flex justify-between items-start mb-4">
+                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-xl shadow-lg overflow-hidden ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                    {patient.avatarUrl ? (
+                                        <img src={patient.avatarUrl} alt={patient.name} className="w-full h-full object-cover"/>
+                                    ) : (
+                                        patient.name.charAt(0)
+                                    )}
+                                </div>
+                                <div className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${patient.status === 'Critical' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
+                                    {patient.status}
+                                </div>
+                            </div>
+                            
+                            <h3 className="font-bold text-lg mb-1">{patient.name}</h3>
+                            <p className={`text-xs ${subText} mb-4 font-medium`}>ID: {patient.id.substring(0,8)}</p>
 
-                    <div className="space-y-2 mb-4">
-                        <div className="flex justify-between text-xs items-center">
-                            <span className={subText}>Last Visit</span>
-                            <span className="font-bold">{patient.lastExam}</span>
-                        </div>
-                        <div className="flex justify-between text-xs items-center">
-                            <span className={subText}>Gender</span>
-                            <span className="font-bold">{patient.gender}</span>
-                        </div>
-                    </div>
-                    
-                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                         <div className="flex -space-x-2">
-                             <div className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white dark:border-slate-900"></div>
-                             <div className="w-6 h-6 rounded-full bg-slate-300 border-2 border-white dark:border-slate-900"></div>
-                         </div>
-                         <span className={`text-[10px] font-bold uppercase tracking-widest ${accentText} opacity-0 group-hover:opacity-100 transition-opacity`}>View Profile</span>
+                            <div className="space-y-2 mb-4">
+                                <div className="flex justify-between text-xs items-center">
+                                    <span className={subText}>Last Visit</span>
+                                    <span className="font-bold">{patient.lastExam}</span>
+                                </div>
+                                <div className="flex justify-between text-xs items-center">
+                                    <span className={subText}>Gender</span>
+                                    <span className="font-bold">{patient.gender}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                                <div className="flex -space-x-2">
+                                    <div className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white dark:border-slate-900"></div>
+                                    <div className="w-6 h-6 rounded-full bg-slate-300 border-2 border-white dark:border-slate-900"></div>
+                                </div>
+                                <span className={`text-[10px] font-bold uppercase tracking-widest ${accentText} opacity-0 group-hover:opacity-100 transition-opacity`}>View Profile</span>
+                            </div>
+                        </motion.div>
+                    ))}
+                </motion.div>
+            ) : (
+                <motion.div 
+                    key="table"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className={`rounded-3xl border overflow-hidden ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}
+                >
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className={`text-[10px] font-black uppercase tracking-widest ${tableHeaderClass}`}>
+                                    <th className="p-4 pl-6">Name</th>
+                                    <th className="p-4">Gender</th>
+                                    <th className="p-4">Age</th>
+                                    <th className="p-4">Diagnosis</th>
+                                    <th className="p-4">Phone Number</th>
+                                    <th className="p-4">Address</th>
+                                    <th className="p-4">Blood</th>
+                                    <th className="p-4 pr-6">Triage</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredPatients.map((patient, idx) => {
+                                    const latestDiagnosis = patient.diagnosisHistory && patient.diagnosisHistory.length > 0 
+                                        ? (patient.diagnosisHistory[patient.diagnosisHistory.length - 1].grade === 0 ? "Healthy" : `Grade ${patient.diagnosisHistory[patient.diagnosisHistory.length - 1].grade}`)
+                                        : "Not Scanned";
+                                    
+                                    return (
+                                        <tr 
+                                            key={patient.id} 
+                                            onClick={() => setSelectedPatientId(patient.id)}
+                                            className={`cursor-pointer transition-colors border-b ${isDarkMode ? 'border-slate-800 text-slate-300' : 'border-slate-100 text-slate-700'} ${tableRowHover} last:border-0`}
+                                        >
+                                            <td className="p-4 pl-6 flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs overflow-hidden ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                                    {patient.avatarUrl ? (
+                                                        <img src={patient.avatarUrl} alt={patient.name} className="w-full h-full object-cover"/>
+                                                    ) : (
+                                                        patient.name.charAt(0)
+                                                    )}
+                                                </div>
+                                                <div className="font-bold text-sm">{patient.name}</div>
+                                            </td>
+                                            <td className="p-4 text-xs font-medium">{patient.gender}</td>
+                                            <td className="p-4 text-xs font-medium">{patient.age} yo</td>
+                                            <td className="p-4 text-xs font-bold">{latestDiagnosis}</td>
+                                            <td className="p-4 text-xs font-medium opacity-70">{patient.phone || "N/A"}</td>
+                                            <td className="p-4 text-xs font-medium opacity-70 truncate max-w-[150px]">{"Ho Chi Minh City"}</td>
+                                            <td className="p-4 text-xs font-bold">{patient.bloodType || "O+"}</td>
+                                            <td className="p-4 pr-6">
+                                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                                                    patient.status === 'Critical' ? 'bg-red-500/10 text-red-500' : 
+                                                    patient.status === 'Active' ? 'bg-green-500/10 text-green-500' : 'bg-slate-500/10 text-slate-500'
+                                                }`}>
+                                                    {patient.status || 'Non Urgent'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 </motion.div>
-            ))}
+            )}
           </AnimatePresence>
       </div>
 
-      {/* ADD PATIENT MODAL */}
       <AnimatePresence>
         {isAddModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -404,7 +645,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                 <input 
                                     type="text" required value={newPatient.name}
                                     onChange={e => setNewPatient({...newPatient, name: e.target.value})}
-                                    className={`w-full p-3 rounded-xl border outline-none font-bold text-sm mt-2 ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500' : 'bg-slate-50 border-slate-200 focus:border-blue-500'}`} 
+                                    className={`w-full p-3 rounded-xl border outline-none font-bold text-sm mt-2 ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
                                 />
                             </div>
                             <div>
@@ -412,7 +653,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                 <input 
                                     type="number" required value={newPatient.age || ''}
                                     onChange={e => setNewPatient({...newPatient, age: Number(e.target.value)})}
-                                    className={`w-full p-3 rounded-xl border outline-none font-bold text-sm mt-2 ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500' : 'bg-slate-50 border-slate-200 focus:border-blue-500'}`} 
+                                    className={`w-full p-3 rounded-xl border outline-none font-bold text-sm mt-2 ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
                                 />
                             </div>
                             <div>
@@ -420,7 +661,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                 <select 
                                     value={newPatient.gender}
                                     onChange={e => setNewPatient({...newPatient, gender: e.target.value as any})}
-                                    className={`w-full p-3 rounded-xl border outline-none font-bold text-sm mt-2 ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500' : 'bg-slate-50 border-slate-200 focus:border-blue-500'}`}
+                                    className={`w-full p-3 rounded-xl border outline-none font-bold text-sm mt-2 ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`}
                                 >
                                     <option value="Male">Male</option>
                                     <option value="Female">Female</option>

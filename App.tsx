@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2 } from 'lucide-react';
+import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import DiagnosisView from './components/DiagnosisView';
@@ -9,11 +9,15 @@ import Inventory from './components/Inventory';
 import LandingPage from './components/LandingPage';
 import SettingsView from './components/SettingsView';
 import AIChatbot from './components/AIChatbot';
+import InsightsView from './components/InsightsView'; // Import new view
 import { useLanguage } from './contexts/LanguageContext';
 import { auth } from './services/firebase';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { getUserProfile } from './services/userService';
-import { UserProfile } from './types';
+import { UserProfile, Patient, InventoryItem, ChatSession } from './types';
+import { subscribeToPatients } from './services/patientService';
+import { subscribeToInventory } from './services/inventoryService';
+import { subscribeToActiveChats } from './services/chatService';
 
 // ==================================================================================
 // 🖼️ ASSETS CONFIGURATION
@@ -25,7 +29,20 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [currentView, setCurrentView] = useState('dashboard'); 
-  const [isDarkMode, setIsDarkMode] = useState(true); 
+  const [isDarkMode, setIsDarkMode] = useState(false); 
+  
+  // GLOBAL SEARCH STATE
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{type: string, id: string, title: string, subtitle?: string, action: () => void}[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // Data for search (Cached)
+  const [allPatients, setAllPatients] = useState<Patient[]>([]);
+  const [allInventory, setAllInventory] = useState<InventoryItem[]>([]);
+  
+  // Global Chat State for Notifications
+  const [activeChats, setActiveChats] = useState<ChatSession[]>([]);
   
   const { language, setLanguage, t } = useLanguage();
 
@@ -35,7 +52,6 @@ const App: React.FC = () => {
       setCurrentUser(user);
       if (user) {
          try {
-             // Fetch extra profile data from Firestore
              const profile = await getUserProfile(user);
              setUserProfile(profile);
          } catch (e) {
@@ -49,6 +65,86 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  // Fetch Data for Global Search & Notifications
+  useEffect(() => {
+    if (currentUser) {
+        const unsubPatients = subscribeToPatients(currentUser.uid, setAllPatients, () => {});
+        const unsubInventory = subscribeToInventory(setAllInventory, () => {});
+        const unsubChats = subscribeToActiveChats(currentUser.uid, setActiveChats);
+        
+        return () => { 
+            unsubPatients(); 
+            unsubInventory(); 
+            unsubChats();
+        };
+    }
+  }, [currentUser]);
+
+  // Calculate Global Unread Messages
+  const unreadMessageCount = useMemo(() => {
+      if (!currentUser) return 0;
+      return activeChats.reduce((acc, chat) => {
+          if (chat.lastMessage && !chat.lastMessage.seen && chat.lastMessage.senderId !== currentUser.uid) {
+              return acc + 1;
+          }
+          return acc;
+      }, 0);
+  }, [activeChats, currentUser]);
+
+  // Global Search Logic
+  useEffect(() => {
+      if (!searchQuery.trim()) {
+          setSearchResults([]);
+          return;
+      }
+      
+      const q = searchQuery.toLowerCase();
+      const results: typeof searchResults = [];
+
+      // 1. Navigation Pages
+      ['dashboard', 'patients', 'diagnosis', 'history', 'settings'].forEach(page => {
+          if (page.includes(q)) {
+              results.push({
+                  type: 'Page', id: page, title: `Go to ${page.charAt(0).toUpperCase() + page.slice(1)}`,
+                  action: () => setCurrentView(page)
+              });
+          }
+      });
+
+      // 2. Patients
+      allPatients.forEach(p => {
+          if (p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)) {
+              results.push({
+                  type: 'Patient', id: p.id, title: p.name, subtitle: `ID: ${p.id.substring(0,6)}...`,
+                  action: () => setCurrentView('patients') // Ideally, pass selected ID to view
+              });
+          }
+      });
+
+      // 3. Inventory
+      allInventory.forEach(i => {
+          if (i.name.toLowerCase().includes(q)) {
+              results.push({
+                  type: 'Item', id: i.id, title: i.name, subtitle: `${i.stock} in stock`,
+                  action: () => {} // Inventory is now a global widget, no need to navigate
+              });
+          }
+      });
+
+      setSearchResults(results.slice(0, 8)); // Limit to 8 results
+  }, [searchQuery, allPatients, allInventory]);
+
+  // Click outside to close search
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+              setIsSearchOpen(false);
+          }
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // Toggle Body class for global styles
   useEffect(() => {
     if (isDarkMode) {
@@ -58,7 +154,6 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
-  // Handle Logout Logic
   const handleLogout = async () => {
     try {
         await signOut(auth);
@@ -69,7 +164,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Page Transition Animation
   const pageVariants = {
     initial: { opacity: 0, y: 10 },
     in: { opacity: 1, y: 0 },
@@ -127,17 +221,56 @@ const App: React.FC = () => {
                         {currentView === 'dashboard' && t.sidebar.dashboard}
                         {currentView === 'patients' && t.sidebar.patients}
                         {currentView === 'diagnosis' && t.sidebar.diagnosis}
-                        {currentView === 'inventory' && t.sidebar.pharmacy}
                         {currentView === 'history' && t.sidebar.insights}
                         {currentView === 'settings' && t.sidebar.settings}
                     </h2>
                   </div>
 
                   <div className="flex items-center space-x-3">
-                      {/* Search Bar */}
-                      <div className={`hidden md:flex items-center px-2.5 py-1 rounded-full border ${isDarkMode ? 'bg-slate-900 border-slate-800 focus-within:border-red-500' : 'bg-slate-100 border-slate-200 focus-within:border-blue-500'}`}>
-                          <Search size={12} className="opacity-50 mr-2" />
-                          <input type="text" placeholder={t.patients.search} className="bg-transparent border-none outline-none text-[10px] w-40 font-medium" />
+                      {/* GLOBAL SEARCH BAR */}
+                      <div className="relative" ref={searchRef}>
+                          <div className={`hidden md:flex items-center px-2.5 py-1 rounded-full border ${isDarkMode ? 'bg-slate-900 border-slate-800 focus-within:border-red-500' : 'bg-slate-100 border-slate-200 focus-within:border-blue-500'}`}>
+                              <Search size={12} className="opacity-50 mr-2" />
+                              <input 
+                                  type="text" 
+                                  placeholder={t.patients.search} 
+                                  value={searchQuery}
+                                  onChange={(e) => { setSearchQuery(e.target.value); setIsSearchOpen(true); }}
+                                  onFocus={() => setIsSearchOpen(true)}
+                                  className={`bg-transparent border-none outline-none text-[10px] w-40 font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                              />
+                          </div>
+
+                          {/* Search Dropdown Results */}
+                          <AnimatePresence>
+                              {isSearchOpen && searchQuery && (
+                                  <motion.div 
+                                      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
+                                      className={`absolute top-full right-0 mt-2 w-64 rounded-xl shadow-2xl border overflow-hidden z-50 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}
+                                  >
+                                      {searchResults.length > 0 ? (
+                                          <ul className="py-2">
+                                              {searchResults.map((res, i) => (
+                                                  <li 
+                                                      key={i} 
+                                                      onClick={() => { res.action(); setIsSearchOpen(false); setSearchQuery(''); }}
+                                                      className={`px-4 py-2 cursor-pointer flex justify-between items-center group ${isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}
+                                                  >
+                                                      <div className="flex flex-col">
+                                                          <span className={`text-[10px] font-bold uppercase tracking-wider opacity-50`}>{res.type}</span>
+                                                          <span className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{res.title}</span>
+                                                          {res.subtitle && <span className="text-[10px] opacity-70">{res.subtitle}</span>}
+                                                      </div>
+                                                      <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                  </li>
+                                              ))}
+                                          </ul>
+                                      ) : (
+                                          <div className="p-4 text-center text-xs opacity-50">No results found.</div>
+                                      )}
+                                  </motion.div>
+                              )}
+                          </AnimatePresence>
                       </div>
                       
                       {/* Language Toggle */}
@@ -156,8 +289,15 @@ const App: React.FC = () => {
                         {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
                       </button>
 
-                      <button className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+                      {/* Bell Notification */}
+                      <button className={`p-1.5 rounded-full transition-colors relative ${isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
                         <Bell size={16} className={isDarkMode ? 'text-slate-300' : 'text-slate-600'} />
+                        {unreadMessageCount > 0 && (
+                            <span className="absolute top-0 right-0 flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border-2 border-white dark:border-black"></span>
+                            </span>
+                        )}
                       </button>
                       
                       {/* DOCTOR PROFILE SECTION */}
@@ -220,22 +360,16 @@ const App: React.FC = () => {
                         transition={pageTransition}
                         className="relative z-10 h-full max-w-full mx-auto"
                       >
-                        {/* Passed setView prop here */}
                         {currentView === 'dashboard' && <Dashboard isDarkMode={isDarkMode} currentUser={currentUser} userProfile={userProfile} setView={setCurrentView} />}
                         {currentView === 'diagnosis' && <DiagnosisView isDarkMode={isDarkMode} />}
                         {currentView === 'patients' && <PatientList isDarkMode={isDarkMode} />}
-                        {currentView === 'inventory' && <Inventory isDarkMode={isDarkMode} />}
                         {currentView === 'settings' && <SettingsView userProfile={userProfile} isDarkMode={isDarkMode} onProfileUpdate={setUserProfile} />}
-                        {currentView === 'history' && (
-                            <div className={`flex items-center justify-center h-full opacity-50 font-mono uppercase tracking-widest ${isDarkMode ? 'text-red-500' : 'text-blue-500'}`}>
-                                <Activity size={48} className="mb-4 animate-pulse" />
-                                <p>System Logs // Access Restricted</p>
-                            </div>
-                        )}
+                        {currentView === 'history' && <InsightsView isDarkMode={isDarkMode} currentUser={currentUser} />}
                       </motion.div>
                    </AnimatePresence>
                    
-                   {/* Add Chatbot here */}
+                   {/* Persistent Global Widgets */}
+                   <Inventory isDarkMode={isDarkMode} />
                    <AIChatbot />
                </div>
             </main>

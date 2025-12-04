@@ -1,15 +1,22 @@
 import { db } from "./firebase";
-import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, doc, arrayUnion, getDoc } from "firebase/firestore";
+import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, arrayUnion } from "firebase/firestore";
 import { Patient, DiagnosisRecord } from "../types";
 
 const COLLECTION_NAME = "patients";
 
-// --- GET REAL-TIME PATIENTS ---
+// --- GET REAL-TIME PATIENTS FOR SPECIFIC DOCTOR ---
 export const subscribeToPatients = (
+  doctorUid: string,
   onData: (patients: Patient[]) => void,
   onError: (error: any) => void
 ) => {
-  const q = query(collection(db, COLLECTION_NAME), orderBy("createdAt", "desc"));
+  if (!doctorUid) return () => {};
+
+  // Query only patients belonging to this doctor
+  const q = query(
+      collection(db, COLLECTION_NAME), 
+      where("doctorUid", "==", doctorUid)
+  );
   
   return onSnapshot(q, 
     (snapshot) => {
@@ -17,6 +24,15 @@ export const subscribeToPatients = (
         id: doc.id,
         ...doc.data()
       })) as Patient[];
+      
+      // Sort client-side to avoid composite index requirement issues
+      // Sort by createdAt descending (newest first)
+      patients.sort((a: any, b: any) => {
+          const timeA = a.createdAt?.toMillis() || 0;
+          const timeB = b.createdAt?.toMillis() || 0;
+          return timeB - timeA;
+      });
+
       onData(patients);
     },
     (error) => {
@@ -27,14 +43,17 @@ export const subscribeToPatients = (
 };
 
 // --- ADD PATIENT ---
-export const addPatient = async (patientData: Omit<Patient, "id">) => {
+export const addPatient = async (doctorUid: string, patientData: Omit<Patient, "id" | "doctorUid">) => {
+  if (!doctorUid) throw new Error("Doctor UID is required");
+  
   try {
     const docRef = await addDoc(collection(db, COLLECTION_NAME), {
       ...patientData,
+      doctorUid: doctorUid, // Link to the current user
       createdAt: serverTimestamp(),
-      lastExam: new Date().toISOString().split('T')[0], // Default to today
+      lastExam: new Date().toISOString().split('T')[0],
       status: patientData.status || 'Active',
-      diagnosisHistory: [] // Initialize empty history
+      diagnosisHistory: []
     });
     return docRef.id;
   } catch (error) {
@@ -58,11 +77,10 @@ export const addPatientDiagnosis = async (patientId: string, diagnosis: Diagnosi
     try {
         const patientRef = doc(db, COLLECTION_NAME, patientId);
         
-        // Push to history array and update lastExam date
         await updateDoc(patientRef, {
             diagnosisHistory: arrayUnion(diagnosis),
-            lastExam: diagnosis.date.split('T')[0], // Update last exam date
-            status: diagnosis.grade >= 3 ? 'Critical' : 'Active' // Auto-update status based on severity
+            lastExam: diagnosis.date.split('T')[0],
+            status: diagnosis.grade >= 3 ? 'Critical' : 'Active'
         });
     } catch (error) {
         console.error("Error adding diagnosis history:", error);

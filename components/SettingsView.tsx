@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile } from '../types';
 import { updateUserProfile, uploadUserImage } from '../services/userService';
-import { Save, Loader2, Camera, MapPin, Edit2, Upload, Trash2, LogOut, Check, Image as ImageIcon } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Save, Loader2, Camera, MapPin, Edit2, Upload, Trash2, LogOut, Check, Image as ImageIcon, Key, ShieldAlert, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
+import { updatePassword, signOut } from "firebase/auth";
+import { auth } from '../services/firebase';
 
 interface SettingsViewProps {
     userProfile: UserProfile | null;
@@ -21,6 +23,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
     const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
     
     const [editingField, setEditingField] = useState<string | null>(null);
+
+    // Password Modal State
+    const [isPassModalOpen, setIsPassModalOpen] = useState(false);
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
+    const [passError, setPassError] = useState("");
+    const [passSuccess, setPassSuccess] = useState("");
 
     const avatarInputRef = useRef<HTMLInputElement>(null);
     const bannerInputRef = useRef<HTMLInputElement>(null);
@@ -44,7 +53,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
             setEditingField(null);
         } catch (error) {
             console.error("Failed to update", error);
-            // Optionally show toast error here
         } finally {
             setIsSaving(false);
         }
@@ -55,17 +63,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         setFormData({ ...formData, [key]: value });
     };
 
-    // --- ROBUST IMAGE UPLOAD HANDLER ---
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'avatar' | 'banner') => {
         if (!formData || !e.target.files || !e.target.files[0]) return;
         
         const file = e.target.files[0];
         const isAvatar = type === 'avatar';
         
-        // 1. Instant Optimistic Preview (Browser Blob)
         const previewUrl = URL.createObjectURL(file);
         
-        // Update local state immediately so user sees the change
         const optimisticProfile = { 
             ...formData, 
             [isAvatar ? 'photoURL' : 'bannerURL']: previewUrl 
@@ -76,27 +81,87 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         else setIsUploadingBanner(true);
 
         try {
-            // 2. Upload (Cloudinary -> Fallback to Base64)
-            // This function handles resizing and timeouts internally
             const finalUrl = await uploadUserImage(formData.uid, file, type);
-            
-            // 3. Persist to Firestore
             const field = isAvatar ? 'photoURL' : 'bannerURL';
             await updateUserProfile(formData.uid, { [field]: finalUrl });
             
-            // 4. Update Global State with permanent URL
             const finalProfile = { ...formData, [field]: finalUrl };
             setFormData(finalProfile);
             onProfileUpdate(finalProfile);
             
         } catch (error) {
             console.error("Critical upload error:", error);
-            // We keep the optimistic URL or revert if strictly necessary. 
-            // In this case, we keep it so the UI doesn't flash broken.
         } finally {
-            // Always turn off loading spinner
             if (isAvatar) setIsUploadingAvatar(false);
             else setIsUploadingBanner(false);
+        }
+    };
+
+    // --- NEW FUNCTION: REMOVE AVATAR ---
+    const handleRemoveAvatar = async () => {
+        if (!formData || !confirm("Are you sure you want to remove your profile picture?")) return;
+        
+        try {
+            setIsUploadingAvatar(true);
+            await updateUserProfile(formData.uid, { photoURL: '' });
+            const updatedProfile = { ...formData, photoURL: '' };
+            setFormData(updatedProfile);
+            onProfileUpdate(updatedProfile);
+        } catch (error) {
+            console.error("Failed to remove avatar", error);
+            alert("Failed to remove avatar.");
+        } finally {
+            setIsUploadingAvatar(false);
+        }
+    };
+
+    // --- NEW FUNCTION: CHANGE PASSWORD ---
+    const handleChangePassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setPassError("");
+        setPassSuccess("");
+
+        if (newPassword !== confirmPassword) {
+            setPassError("Passwords do not match.");
+            return;
+        }
+        if (newPassword.length < 6) {
+            setPassError("Password must be at least 6 characters.");
+            return;
+        }
+
+        const user = auth.currentUser;
+        if (user) {
+            setIsSaving(true);
+            try {
+                await updatePassword(user, newPassword);
+                setPassSuccess("Password updated successfully!");
+                setNewPassword("");
+                setConfirmPassword("");
+                setTimeout(() => setIsPassModalOpen(false), 1500);
+            } catch (error: any) {
+                console.error("Password update error", error);
+                if (error.code === 'auth/requires-recent-login') {
+                    setPassError("For security, please logout and login again to change your password.");
+                } else {
+                    setPassError("Failed to update password. " + error.message);
+                }
+            } finally {
+                setIsSaving(false);
+            }
+        }
+    };
+
+    // --- NEW FUNCTION: SIGN OUT ALL DEVICES ---
+    const handleSignOutAll = async () => {
+        const confirmSignOut = confirm("This will sign you out from this device and invalidate tokens on other devices (security measure). Continue?");
+        if (confirmSignOut) {
+            try {
+                await signOut(auth);
+                window.location.reload(); // Force reload to clear state
+            } catch (error) {
+                console.error("Sign out error", error);
+            }
         }
     };
 
@@ -163,7 +228,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                                 {fieldKey === 'password' ? '••••••••' : value}
                             </span>
                             
-                            {!readOnly && (
+                            {!readOnly && fieldKey !== 'password' && fieldKey !== 'device' && (
                                 <button 
                                     onClick={() => setEditingField(fieldKey)}
                                     className={`text-xs font-bold uppercase ${linkColor} opacity-0 group-hover:opacity-100 transition-opacity ml-4 shrink-0`}
@@ -171,9 +236,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                                     Edit
                                 </button>
                             )}
+
+                             {/* Special Action Buttons */}
+                            {fieldKey === 'password' && (
+                                <button 
+                                    onClick={() => setIsPassModalOpen(true)}
+                                    className={`text-xs font-bold uppercase ${linkColor} ml-4 shrink-0`}
+                                >
+                                    Change
+                                </button>
+                            )}
                             
                             {fieldKey === 'device' && (
-                                <button className={`text-xs font-bold uppercase ${linkColor} ml-4 shrink-0`}>
+                                <button 
+                                    onClick={handleSignOutAll}
+                                    className={`text-xs font-bold uppercase text-red-500 hover:text-red-600 ml-4 shrink-0`}
+                                >
                                     Sign Out All
                                 </button>
                             )}
@@ -235,7 +313,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                         {/* Avatar */}
                         <div className="flex flex-col items-center">
                             <div className={`w-32 h-32 md:w-40 md:h-40 rounded-2xl p-1.5 ${isDarkMode ? 'bg-slate-900' : 'bg-white'} shadow-2xl relative group/avatar`}>
-                                <div className="w-full h-full rounded-xl overflow-hidden relative">
+                                <div className="w-full h-full rounded-xl overflow-hidden relative bg-slate-100 dark:bg-slate-800">
                                     <img 
                                         src={formData.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop"} 
                                         alt="Avatar" 
@@ -264,7 +342,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                                     <Camera size={12} className="mr-1" />
                                     Change
                                 </button>
-                                <button className="text-red-500 hover:text-red-600">Remove</button>
+                                <button 
+                                    onClick={handleRemoveAvatar} 
+                                    className="text-red-500 hover:text-red-600 disabled:opacity-50"
+                                    disabled={!formData.photoURL}
+                                >
+                                    Remove
+                                </button>
                             </div>
                         </div>
 
@@ -342,50 +426,84 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                             value={formData.language || "English"} 
                         />
 
-                        {/* Note: Subscription section has been completely removed as requested */}
+                        <InfoRow 
+                            label="Password" 
+                            fieldKey="password" 
+                            value="********" 
+                            readOnly
+                        />
 
-                        <div className={`flex flex-col md:flex-row md:items-center justify-between py-6 border-b ${borderClass} last:border-0 group`}>
-                            <div className="md:w-1/3 mb-2 md:mb-0">
-                                <span className={`text-sm font-bold ${labelColor}`}>Password</span>
-                            </div>
-                            <div className="md:w-2/3 flex items-center justify-between">
-                                <span className={`text-sm font-medium ${valueColor}`}>••••••••••</span>
-                                <button className={`text-xs font-bold uppercase ${linkColor} opacity-0 group-hover:opacity-100 transition-opacity ml-4`}>Change</button>
-                            </div>
-                        </div>
-
-                        <div className={`flex flex-col md:flex-row md:items-center justify-between py-6 border-b ${borderClass} last:border-0 group`}>
-                            <div className="md:w-1/3 mb-2 md:mb-0">
-                                <span className={`text-sm font-bold ${labelColor}`}>Device</span>
-                            </div>
-                            <div className="md:w-2/3 flex items-center justify-between">
-                                <span className={`text-xs font-bold uppercase ${linkColor} cursor-pointer hover:text-red-500 transition-colors`}>Sign Out From All Devices</span>
-                            </div>
-                        </div>
+                        <InfoRow 
+                            label="Security" 
+                            fieldKey="device" 
+                            value="Manage login sessions" 
+                            readOnly
+                        />
 
                     </div>
                 </div>
             </motion.div>
+
+            {/* PASSWORD CHANGE MODAL */}
+            <AnimatePresence>
+                {isPassModalOpen && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                            onClick={() => setIsPassModalOpen(false)}
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                            className={`relative w-full max-w-md p-6 rounded-2xl shadow-2xl ${isDarkMode ? 'bg-slate-900 border border-slate-700' : 'bg-white'}`}
+                        >
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className={`text-lg font-bold flex items-center ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                                    <Key className="mr-2" size={20}/> Change Password
+                                </h3>
+                                <button onClick={() => setIsPassModalOpen(false)}><X className={isDarkMode ? 'text-slate-400' : 'text-slate-500'} /></button>
+                            </div>
+                            
+                            <form onSubmit={handleChangePassword} className="space-y-4">
+                                <div>
+                                    <label className={`text-xs font-bold uppercase ${labelColor}`}>New Password</label>
+                                    <input 
+                                        type="password" 
+                                        required 
+                                        value={newPassword}
+                                        onChange={e => setNewPassword(e.target.value)}
+                                        className={`w-full p-3 rounded-lg mt-2 text-sm outline-none border ${inputBg} focus:border-blue-500`}
+                                    />
+                                </div>
+                                <div>
+                                    <label className={`text-xs font-bold uppercase ${labelColor}`}>Confirm Password</label>
+                                    <input 
+                                        type="password" 
+                                        required 
+                                        value={confirmPassword}
+                                        onChange={e => setConfirmPassword(e.target.value)}
+                                        className={`w-full p-3 rounded-lg mt-2 text-sm outline-none border ${inputBg} focus:border-blue-500`}
+                                    />
+                                </div>
+
+                                {passError && <p className="text-red-500 text-xs font-bold">{passError}</p>}
+                                {passSuccess && <p className="text-green-500 text-xs font-bold">{passSuccess}</p>}
+
+                                <button 
+                                    type="submit" 
+                                    disabled={isSaving}
+                                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg uppercase text-xs tracking-widest transition-colors flex items-center justify-center"
+                                >
+                                    {isSaving ? <Loader2 className="animate-spin" size={16}/> : 'Update Password'}
+                                </button>
+                            </form>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
         </div>
     );
 };
-
-// Simple Icon component missing in import fix
-const X = ({ size }: { size: number }) => (
-    <svg 
-        xmlns="http://www.w3.org/2000/svg" 
-        width={size} 
-        height={size} 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="currentColor" 
-        strokeWidth="2" 
-        strokeLinecap="round" 
-        strokeLinejoin="round"
-    >
-        <line x1="18" y1="6" x2="6" y2="18"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-    </svg>
-);
 
 export default SettingsView;

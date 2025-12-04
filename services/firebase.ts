@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import * as firebaseApp from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
@@ -14,7 +14,8 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase (Modular SDK)
-const app = initializeApp(firebaseConfig);
+// Use type casting to bypass potential type definition mismatch for initializeApp
+const app = (firebaseApp as any).initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);

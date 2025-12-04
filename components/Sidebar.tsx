@@ -19,7 +19,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isDarkMode, onL
     { id: 'dashboard', label: t.sidebar.dashboard, icon: LayoutDashboard },
     { id: 'patients', label: t.sidebar.patients, icon: Users },
     { id: 'diagnosis', label: t.sidebar.diagnosis, icon: Eye },
-    { id: 'inventory', label: t.sidebar.pharmacy, icon: Pill }, 
+    { id: 'inventory', label: t.sidebar.pharmacy, icon: Package }, // Added back
     { id: 'history', label: t.sidebar.insights, icon: Activity },
   ];
 

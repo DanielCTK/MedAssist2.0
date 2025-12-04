@@ -1,5 +1,5 @@
 import React, { useState, useEffect, ReactNode } from 'react';
-import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Activity, ShieldCheck, Menu, Moon, Sun, Lock, Brain, Dna, FileScan, ArrowRight, CheckCircle, Zap, X, ChevronRight, FileText, ChevronLeft, LayoutTemplate, Quote, Play, Globe, MapPin, Phone, Mail, Facebook, Twitter, Linkedin, Instagram, ScanEye, Home } from 'lucide-react';
 import AuthModal from './AuthModal';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -289,7 +289,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
     logoAccent: 'ASSIST'
   };
 
-  const cardVariants: Variants = {
+  const cardVariants = {
     collapsed: (index: number) => {
         const offset = index - 1; 
         return {
