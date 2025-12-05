@@ -34,6 +34,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
     const avatarInputRef = useRef<HTMLInputElement>(null);
     const bannerInputRef = useRef<HTMLInputElement>(null);
 
+    const hoverEffect = "hover:shadow-2xl hover:border-blue-400 dark:hover:border-slate-600 transition-all duration-500";
+
     useEffect(() => {
         if (userProfile) {
             setFormData({ ...userProfile });
@@ -193,7 +195,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         const isEditing = editingField === fieldKey;
 
         return (
-            <div className={`flex flex-col md:flex-row md:items-center justify-between py-6 border-b ${borderClass} last:border-0 group`}>
+            <div className={`flex flex-col md:flex-row md:items-center justify-between py-6 border-b ${borderClass} last:border-0 group hover:bg-slate-50 dark:hover:bg-slate-800/50 px-2 rounded-lg transition-colors`}>
                 <div className="md:w-1/3 mb-2 md:mb-0">
                     <span className={`text-sm font-bold ${labelColor}`}>{label}</span>
                 </div>
@@ -267,7 +269,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
             <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={`max-w-5xl mx-auto rounded-3xl overflow-hidden shadow-xl border ${borderClass} ${containerClass}`}
+                className={`max-w-5xl mx-auto rounded-3xl overflow-hidden shadow-xl border ${borderClass} ${containerClass} ${hoverEffect}`}
             >
                 {/* --- BANNER SECTION --- */}
                 <div className="relative h-48 w-full bg-slate-200 group/banner">

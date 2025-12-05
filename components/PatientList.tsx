@@ -37,6 +37,8 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const { t } = useLanguage();
   const currentUser = auth.currentUser;
 
+  const hoverEffect = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300 hover:border-blue-400 dark:hover:border-slate-600";
+
   useEffect(() => {
     if (currentUser) {
         const unsubscribe = subscribeToPatients(
@@ -218,7 +220,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                       <ChevronLeft size={14} className="mr-1" /> Back to List
                   </button>
 
-                  <div className={`p-6 rounded-3xl shadow-xl border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} relative overflow-hidden`}>
+                  <div className={`p-6 rounded-3xl shadow-xl border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} relative overflow-hidden ${hoverEffect}`}>
                       <div className="flex flex-col items-center text-center">
                           <div className="relative mb-4">
                               <div 
@@ -420,7 +422,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                       </div>
                   </div>
 
-                  <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
+                  <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} ${hoverEffect}`}>
                       <div className="flex justify-between items-center mb-4">
                           <h3 className="font-bold text-sm">Next Notification</h3>
                           <span className="text-[10px] text-slate-400">{new Date().toLocaleDateString()}</span>
@@ -451,7 +453,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                       <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
                           {activePatient.diagnosisHistory && activePatient.diagnosisHistory.length > 0 ? (
                               [...activePatient.diagnosisHistory].reverse().map((exam, idx) => (
-                                  <div key={idx} className={`min-w-[200px] p-4 rounded-xl border-l-4 shadow-sm flex-shrink-0 ${isDarkMode ? 'bg-slate-900 border-teal-500' : 'bg-white border-teal-500'}`}>
+                                  <div key={idx} className={`min-w-[200px] p-4 rounded-xl border-l-4 shadow-sm flex-shrink-0 ${isDarkMode ? 'bg-slate-900 border-teal-500' : 'bg-white border-teal-500'} ${hoverEffect}`}>
                                       <span className="text-[10px] font-bold text-slate-400 mb-1 block">{new Date(exam.date).toLocaleDateString()}</span>
                                       <h4 className="font-bold text-sm mb-1 truncate">{
                                           exam.grade === 0 ? "Healthy Retina" : 
@@ -475,7 +477,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                       </div>
                   </div>
 
-                  <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
+                  <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} ${hoverEffect}`}>
                       <div className="flex justify-between items-center mb-6">
                           <h3 className={`text-xl font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>Health Curve (DR Grade)</h3>
                           <div className="flex gap-2">
@@ -517,7 +519,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
+                      <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} ${hoverEffect}`}>
                           <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-4`}>Nearest Treatment</h3>
                           <div className="flex justify-between items-center mb-4">
                               <span className="font-bold text-sm uppercase">{treatmentInfo.date.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
@@ -541,7 +543,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                           </div>
                       </div>
 
-                      <div className={`p-6 rounded-3xl shadow-lg border relative overflow-hidden ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
+                      <div className={`p-6 rounded-3xl shadow-lg border relative overflow-hidden ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} ${hoverEffect}`}>
                           <div className="relative z-10 flex flex-col h-full">
                               <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-2`}>Doctor's Advice</h3>
                               <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
@@ -561,6 +563,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
       );
   }
 
+  // ... (Return and rest of component remains same) ...
   return (
     <motion.div 
         initial={{ opacity: 0 }}
@@ -728,7 +731,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                         <tr 
                                             key={patient.id} 
                                             onClick={() => setSelectedPatientId(patient.id)}
-                                            className={`cursor-pointer transition-colors border-b ${isDarkMode ? 'border-slate-800 text-slate-300' : 'border-slate-100 text-slate-700'} ${tableRowHover} last:border-0`}
+                                            className={`cursor-pointer transition-colors border-b ${isDarkMode ? 'border-slate-800 text-slate-300' : 'border-slate-100 text-slate-700'} ${tableRowHover} last:border-0 hover:bg-slate-100 dark:hover:bg-slate-800`}
                                         >
                                             <td className="p-4 pl-6 flex items-center gap-3">
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs overflow-hidden ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>

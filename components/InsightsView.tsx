@@ -79,6 +79,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
     const cardClass = isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200";
     const textMain = isDarkMode ? "text-white" : "text-slate-900";
     const textSub = isDarkMode ? "text-slate-400" : "text-slate-500";
+    const hoverEffect = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300 hover:border-blue-400 dark:hover:border-slate-600";
 
     if (loading) return <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin" size={32}/></div>;
 
@@ -88,7 +89,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32`}>
+                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32 ${hoverEffect}`}>
                     <div className="flex justify-between items-start">
                         <div>
                             <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Total Patients</p>
@@ -101,7 +102,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
                     </div>
                 </div>
                 
-                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32`}>
+                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32 ${hoverEffect}`}>
                     <div className="flex justify-between items-start">
                         <div>
                             <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Critical Cases</p>
@@ -112,7 +113,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
                     <div className="text-[10px] text-slate-500 font-bold">Needs immediate attention</div>
                 </div>
 
-                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32`}>
+                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32 ${hoverEffect}`}>
                     <div className="flex justify-between items-start">
                         <div>
                             <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Avg. Confidence</p>
@@ -123,7 +124,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
                     <div className="text-[10px] text-slate-500 font-bold">AI Model Performance</div>
                 </div>
                 
-                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32`}>
+                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32 ${hoverEffect}`}>
                     <div className="flex justify-between items-start">
                         <div>
                             <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Weekly Visits</p>
@@ -140,7 +141,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
             {/* Charts Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Diagnosis Distribution */}
-                <div className={`p-6 rounded-3xl border ${cardClass} h-[350px] flex flex-col`}>
+                <div className={`p-6 rounded-3xl border ${cardClass} h-[350px] flex flex-col ${hoverEffect}`}>
                     <h3 className={`text-sm font-bold uppercase tracking-widest mb-4 ${textSub}`}>Diagnosis Distribution</h3>
                     <div className="flex-1 w-full min-h-0">
                          <ResponsiveContainer width="100%" height="100%">
@@ -176,7 +177,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
                 </div>
 
                 {/* Weekly Appointments */}
-                <div className={`p-6 rounded-3xl border ${cardClass} h-[350px] flex flex-col`}>
+                <div className={`p-6 rounded-3xl border ${cardClass} h-[350px] flex flex-col ${hoverEffect}`}>
                     <h3 className={`text-sm font-bold uppercase tracking-widest mb-4 ${textSub}`}>Patient Volume (7 Days)</h3>
                     <div className="flex-1 w-full min-h-0">
                         <ResponsiveContainer width="100%" height="100%">
@@ -197,7 +198,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
             </div>
 
             {/* Mock System Logs */}
-            <div className={`p-6 rounded-3xl border ${cardClass}`}>
+            <div className={`p-6 rounded-3xl border ${cardClass} ${hoverEffect}`}>
                 <h3 className={`text-sm font-bold uppercase tracking-widest mb-4 ${textSub}`}>Recent System Logs</h3>
                 <div className="space-y-3">
                     {[

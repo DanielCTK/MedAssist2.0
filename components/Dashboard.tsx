@@ -241,6 +241,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
 
   const { t, language } = useLanguage();
   
+  // ... (useEffects remain same) ...
   useEffect(() => {
     if (currentUser) {
         const unsubscribe = subscribeToPatients(
@@ -417,6 +418,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   const themeBg = isDarkMode ? "bg-red-500" : "bg-blue-500";
   const themeBorder = isDarkMode ? "border-red-500" : "border-blue-500";
   const inputClass = isDarkMode ? "bg-slate-950 border-slate-700 text-white focus:border-red-600" : "bg-white border-slate-300 text-slate-900 focus:border-blue-600";
+  const hoverEffect = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300"; // Common hover class
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -436,7 +438,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   const WelcomeBanner = () => {
     const bannerImage = userProfile?.bannerURL || "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=2070&auto=format&fit=crop";
     return (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className={`relative w-full h-48 md:h-64 rounded-2xl overflow-hidden mb-6 flex items-end shadow-2xl group ${isDarkMode ? 'shadow-black/50' : 'shadow-slate-300'}`}>
+        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className={`relative w-full h-48 md:h-64 rounded-2xl overflow-hidden mb-6 flex items-end shadow-2xl group ${isDarkMode ? 'shadow-black/50' : 'shadow-slate-300'} ${hoverEffect}`}>
             <img src={bannerImage} alt="Banner" className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"/>
             <div className={`absolute inset-0 bg-gradient-to-t ${isDarkMode ? 'from-black/95 via-black/40 to-transparent' : 'from-slate-900/90 via-slate-900/30 to-transparent'}`}></div>
             <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/asfalt-dark.png')] mix-blend-overlay"></div>
@@ -452,8 +454,14 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                         <p className="text-[11px] font-medium text-slate-300">{t.dashboard.appointments_left.replace('{{count}}', appointments.filter(a => a.status !== 'Done').length.toString())}</p>
                     </div>
                 </div>
-                 <div className="hidden md:block h-32 w-32 relative transform translate-y-4">
-                     <img src="https://cdni.iconscout.com/illustration/premium/thumb/medical-team-illustration-download-in-svg-png-gif-file-formats--doctor-nurse-healthcare-hospital-staff-pack-people-illustrations-4328578.png" className="w-full h-full object-contain drop-shadow-2xl filter brightness-110" alt="Doctor"/>
+                 <div className="hidden md:block relative transform translate-y-4 mr-4">
+                     <div className="w-32 h-32 rounded-full border-4 border-white/20 shadow-2xl overflow-hidden bg-slate-800">
+                        <img 
+                            src={userProfile?.photoURL || currentUser?.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop"} 
+                            className="w-full h-full object-cover" 
+                            alt="Profile"
+                        />
+                     </div>
                 </div>
             </div>
         </motion.div>
@@ -479,7 +487,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-3">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <div className="space-y-3 lg:col-span-1">
-                    <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} relative overflow-hidden`}>
+                    <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} relative overflow-hidden ${hoverEffect} hover:border-blue-400 dark:hover:border-slate-600`}>
                         <div className="flex items-center space-x-3 mb-3 relative z-10">
                             <div className="relative">
                                 <img src={userProfile?.photoURL || currentUser?.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop"} className={`w-12 h-12 rounded-xl object-cover border-2 ${themeBorder} shadow-lg`} alt="Profile" />
@@ -502,7 +510,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                         </div>
                     </motion.div>
 
-                    <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} flex flex-col h-[320px]`}>
+                    <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} flex flex-col h-[320px] ${hoverEffect} hover:border-blue-400 dark:hover:border-slate-600`}>
                         <div className="flex justify-between items-center mb-3">
                             <h3 className="font-bold text-xs">{t.dashboard.agenda.title}</h3>
                             <button onClick={() => openAddModal()} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><Plus size={14} className={themeColor}/></button>
@@ -514,7 +522,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                 appointments.map((item) => (
                                     <div key={item.id} className="flex gap-2 group cursor-pointer relative" onClick={() => openEditModal(item)}>
                                         <div className="flex flex-col items-center"><span className={`text-[9px] font-bold ${item.status === 'Done' ? 'text-slate-400 line-through' : themeColor}`}>{formatTime(item.startTime)}</span><div className={`w-0.5 h-full mt-0.5 ${item.status === 'Done' ? 'bg-slate-200 dark:bg-slate-800' : isDarkMode ? 'bg-red-900' : 'bg-blue-200'}`} /></div>
-                                        <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all relative group ${item.status === 'In Progress' ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200') : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}`}>
+                                        <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all relative group hover:shadow-md ${item.status === 'In Progress' ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200') : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}`}>
                                             <div className="flex justify-between items-start"><span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{getTranslatedType(item.type)}</span><div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500"><Trash2 size={12} /></button><button onClick={(e) => handleStatusToggle(e, item.id, item.status)} className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${themeBg} border-transparent` : 'border-slate-300'}`}>{item.status === 'In Progress' && <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}</button></div></div>
                                             <h4 className={`text-[10px] font-bold ${item.status === 'Done' ? 'line-through text-slate-400' : ''}`}>{item.title} - <span className="opacity-70">{item.patientName}</span></h4>
                                             <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={10} className="text-slate-400"/></div>
@@ -538,10 +546,10 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                             ].map((action, i) => (
                                 <motion.button 
                                     key={i}
-                                    whileHover={{ scale: 1.02, y: -2 }}
+                                    whileHover={{ scale: 1.05, y: -3, boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)" }}
                                     whileTap={{ scale: 0.98 }}
                                     onClick={() => handleQuickAction(action.id)}
-                                    className={`relative p-2.5 rounded-xl border ${cardClass} flex flex-col items-center justify-center gap-1.5 transition-colors hover:${isDarkMode ? 'border-red-700' : 'border-blue-300'}`}
+                                    className={`relative p-2.5 rounded-xl border ${cardClass} flex flex-col items-center justify-center gap-1.5 transition-all hover:${isDarkMode ? 'border-red-700' : 'border-blue-300'}`}
                                 >
                                     {action.showDot && (
                                         <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse" />
@@ -555,7 +563,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                         </div>
                     </motion.div>
 
-                    <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} h-[200px]`}>
+                    <motion.div variants={itemVariants} className={`p-4 rounded-xl border ${cardClass} h-[200px] ${hoverEffect} hover:border-blue-400 dark:hover:border-slate-600`}>
                         <div className="flex justify-between items-center mb-2">
                             <div><h3 className="font-bold text-xs">{t.dashboard.stats.title} (Last 7 Days)</h3></div>
                             <div className="flex space-x-2"><span className="flex items-center text-[9px] font-bold"><div className={`w-1 h-1 ${themeBg} rounded-full mr-1`}/> Appointments</span></div>
@@ -609,7 +617,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                 <div className="flex items-center space-x-3"><h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t.dashboard.schedule.title}</h2><button onClick={() => openAddModal()} className={`p-1.5 rounded-full ${themeBg} text-white shadow hover:scale-105 transition-transform`}><Plus size={14} /></button><div className="h-4 w-px bg-slate-300 dark:bg-slate-700"></div><div className="flex p-0.5 rounded-lg border bg-slate-100 dark:bg-slate-800 dark:border-slate-700"><button onClick={() => setScheduleViewType('timeline')} className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase transition-all ${scheduleViewType === 'timeline' ? 'bg-white dark:bg-slate-700 shadow-sm' : 'text-slate-500'}`}>{t.dashboard.schedule.timeline}</button><button onClick={() => setScheduleViewType('calendar')} className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase transition-all ${scheduleViewType === 'calendar' ? 'bg-white dark:bg-slate-700 shadow-sm' : 'text-slate-500'}`}>{t.dashboard.schedule.calendar}</button></div></div>
             </div>
             {scheduleViewType === 'timeline' ? (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`p-3 rounded-xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-[#1e293b] border-slate-700 text-white'}`}>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`p-3 rounded-xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-[#1e293b] border-slate-700 text-white'} ${hoverEffect} hover:border-blue-400 dark:hover:border-slate-600`}>
                     <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-2"><h3 className="font-bold text-sm text-white">{t.dashboard.schedule.timeline}</h3><div className="text-[10px] font-mono text-slate-400 opacity-70">{selectedDate.toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div></div>
                     <div className="overflow-x-auto custom-scrollbar pb-2">
                         <div className="min-w-[700px] sm:min-w-full">
@@ -630,7 +638,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                     </div>
                 </motion.div>
             ) : (
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={`p-4 rounded-xl border ${cardClass}`}>
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={`p-4 rounded-xl border ${cardClass} ${hoverEffect} hover:border-blue-400 dark:hover:border-slate-600`}>
                     <div className="flex items-center justify-between mb-4"><div className="flex items-center space-x-2"><button onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded"><ChevronLeft size={16}/></button><h3 className="font-bold text-sm uppercase tracking-wider">{selectedDate.toLocaleString(language === 'vi' ? 'vi-VN' : 'default', { month: 'long', year: 'numeric' })}</h3><button onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded"><ChevronRight size={16}/></button></div></div>
                     <div className="grid grid-cols-7 gap-1 text-center mb-1">{weekDays.map(day => (<div key={day} className={`text-[10px] font-bold ${textMuted} uppercase`}>{day}</div>))}</div>
                     <div className="grid grid-cols-7 gap-1">{calendarDays.map((day, idx) => (<div key={idx} onClick={() => day && setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day))} className={`h-16 rounded-lg border flex flex-col items-start p-1 transition-colors relative cursor-pointer ${!day ? 'border-transparent cursor-default' : ''} ${day === selectedDate.getDate() ? (isDarkMode ? 'border-red-500 bg-red-900/20' : 'border-blue-500 bg-blue-50') : (isDarkMode ? 'border-slate-800 hover:bg-slate-800' : 'border-slate-100 hover:bg-slate-50')}`}>{day && (<><span className={`text-[10px] font-bold ${day === selectedDate.getDate() ? themeColor : ''}`}>{day}</span>{day % 3 === 0 && <div className="mt-auto flex gap-0.5"><div className="w-1 h-1 rounded-full bg-blue-500"></div><div className="w-1 h-1 rounded-full bg-red-500"></div></div>}</>)}</div>))}</div>
@@ -640,6 +648,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       );
   }
 
+  // ... (Rest of component including modals and returns) ...
+  // Ensuring all closing brackets match the original logic
   const MiniReportModal = () => {
       const todayAppointments = appointments.filter(a => a.date === new Date().toISOString().split('T')[0]);
       const criticalPatients = patients.filter(p => p.status === 'Critical');

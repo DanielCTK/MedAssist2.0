@@ -46,6 +46,8 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   const { t, language } = useLanguage();
   const currentUser = auth.currentUser;
 
+  const hoverEffect = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300 hover:border-blue-400 dark:hover:border-slate-600";
+
   // Load patients for the dropdown
   useEffect(() => {
       if (currentUser) {
@@ -157,7 +159,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
         animate={{ opacity: 1, x: 0 }}
         className={`w-full md:w-1/2 flex flex-col gap-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
       >
-        <div className={`p-6 rounded-2xl border flex flex-col flex-1 shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className={`p-6 rounded-2xl border flex flex-col flex-1 shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} ${hoverEffect}`}>
           <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-bold flex items-center">
                   <Scan size={20} className="mr-2 text-blue-500" />
@@ -290,7 +292,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
           ) : (
               <div className="flex flex-col h-full gap-4">
                   {/* Grade Card */}
-                  <div className={`p-6 rounded-2xl border shadow-lg relative overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <div className={`p-6 rounded-2xl border shadow-lg relative overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} ${hoverEffect}`}>
                       <div className={`absolute top-0 left-0 w-2 h-full`} style={{ backgroundColor: GRADE_COLORS[analysisResult.grade] }} />
                       
                       <div className="flex justify-between items-start mb-4">
@@ -324,7 +326,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
                   </div>
 
                   {/* Gemini Report */}
-                  <div className={`flex-1 p-6 rounded-2xl border shadow-lg overflow-y-auto custom-scrollbar ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <div className={`flex-1 p-6 rounded-2xl border shadow-lg overflow-y-auto custom-scrollbar ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} ${hoverEffect}`}>
                        <div className="flex items-center mb-4">
                            <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-black italic text-xs mr-3">
                                AI

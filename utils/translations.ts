@@ -10,15 +10,28 @@ export const translations = {
       logout: "Logout"
     },
     patientDashboard: {
-        welcome: "Welcome back,",
-        health_score: "Health Score",
-        latest_diagnosis: "Latest Diagnosis",
-        appointments: "Upcoming Appointments",
-        prescriptions: "My Prescriptions",
-        contact_doctor: "Contact Doctor",
+        welcome: "Hello,",
+        health_score: "Retina Health Score",
+        latest_diagnosis: "Latest Result",
+        appointments: "My Appointments",
+        prescriptions: "Prescriptions",
+        contact_doctor: "Chat with Doctor",
         no_appointments: "No upcoming appointments",
-        history: "Medical History",
-        book_new: "Book Appointment"
+        history: "Health Journey",
+        book_new: "Request Appointment",
+        tabs: {
+            home: "Home",
+            records: "My Health",
+            schedule: "Schedule",
+            chat: "Doctor Chat",
+            profile: "Profile"
+        },
+        status: {
+            excellent: "Excellent",
+            good: "Good",
+            warning: "Attention Needed",
+            critical: "Critical Action"
+        }
     },
     dashboard: {
       greeting: "Good Morning",
@@ -180,15 +193,28 @@ export const translations = {
       logout: "Đăng xuất"
     },
     patientDashboard: {
-        welcome: "Chào mừng trở lại,",
-        health_score: "Điểm Sức Khỏe",
-        latest_diagnosis: "Chẩn Đoán Mới Nhất",
-        appointments: "Lịch Hẹn Sắp Tới",
-        prescriptions: "Đơn Thuốc Của Tôi",
-        contact_doctor: "Liên Hệ Bác Sĩ",
+        welcome: "Xin chào,",
+        health_score: "Điểm Sức Khỏe Võng Mạc",
+        latest_diagnosis: "Kết Quả Mới Nhất",
+        appointments: "Lịch Hẹn Của Tôi",
+        prescriptions: "Đơn Thuốc",
+        contact_doctor: "Chat với Bác Sĩ",
         no_appointments: "Không có lịch hẹn sắp tới",
-        history: "Lịch Sử Khám",
-        book_new: "Đặt Lịch Mới"
+        history: "Hành Trình Sức Khỏe",
+        book_new: "Đặt Lịch Khám",
+        tabs: {
+            home: "Tổng Quan",
+            records: "Hồ Sơ Y Tế",
+            schedule: "Lịch Trình",
+            chat: "Tư Vấn",
+            profile: "Cá Nhân"
+        },
+        status: {
+            excellent: "Tuyệt Vời",
+            good: "Tốt",
+            warning: "Cần Chú Ý",
+            critical: "Khẩn Cấp"
+        }
     },
     dashboard: {
       greeting: "Chào buổi sáng",

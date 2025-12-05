@@ -4,7 +4,7 @@ import { X, User, Lock, Mail, ArrowRight, Loader2, ShieldCheck, Fingerprint, Ale
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from "firebase/auth";
-import { getUserProfile } from '../services/userService';
+import { getUserProfile, updateUserProfile } from '../services/userService';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -72,6 +72,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
         if (isLogin) {
             const result = await signInWithEmailAndPassword(auth, email, password);
             user = result.user;
+            // For login, we just ensure profile exists (reads role)
+            if (user) await getUserProfile(user); 
         } else {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             user = userCredential.user;
@@ -80,14 +82,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
                     displayName: fullName
                 });
             }
+            // For register, we MUST force the role creation
+            if (user) {
+                // Ensure profile exists first
+                await getUserProfile(user, selectedRole);
+                // Explicitly force update to handle any race conditions with App.tsx default creation
+                await updateUserProfile(user.uid, { role: selectedRole });
+            }
         }
         
-        // Ensure profile exists or is created with the selected role (only matters for create, but handled for both)
-        // If login, getUserProfile will retrieve existing role. If register, it creates with selectedRole.
-        if (user) {
-            await getUserProfile(user, isLogin ? undefined : selectedRole);
-        }
-
         onLogin();
     } catch (err: any) {
         console.error(err);

@@ -14,7 +14,7 @@ import PatientDashboard from './PatientDashboard'; // Import Patient Dashboard
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { getUserProfile } from '../services/userService';
+import { getUserProfile, subscribeToUserProfile } from '../services/userService';
 import { UserProfile, Patient, InventoryItem, ChatSession } from '../types';
 import { subscribeToPatients } from '../services/patientService';
 import { subscribeToInventory } from '../services/inventoryService';
@@ -49,23 +49,48 @@ const App: React.FC = () => {
 
   // Handle Real-time Auth State & Fetch Profile
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let profileUnsubscribe: (() => void) | null = null;
+
+    const authUnsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
+      
       if (user) {
-         try {
-             const profile = await getUserProfile(user);
-             setUserProfile(profile);
-         } catch (e) {
-             console.error("Failed to load user profile", e);
-         }
+         // Subscribe to profile changes in real-time. 
+         // This ensures that if AuthModal creates a profile slightly later, or updates role, UI reacts immediately.
+         profileUnsubscribe = subscribeToUserProfile(user.uid, async (profile) => {
+             if (profile) {
+                 setUserProfile(profile);
+             } else {
+                 // Profile doesn't exist yet (or deleted).
+                 // Try to create a default one if it persists missing, 
+                 // but rely on AuthModal for initial creation to get correct role.
+                 // We fetch once to force creation logic if needed (fallback).
+                 try {
+                    const newProfile = await getUserProfile(user); 
+                    setUserProfile(newProfile);
+                 } catch (e) {
+                    console.error("Error creating default profile", e);
+                 }
+             }
+             setIsLoadingAuth(false); // Auth is ready when profile is loaded/attempted
+         });
       } else {
-         // Optimization: Handle reset logic here centrally instead of in handleLogout
+         if (profileUnsubscribe) profileUnsubscribe();
          setUserProfile(null);
          setCurrentView('dashboard');
+         // Clear data on logout
+         setAllPatients([]);
+         setAllInventory([]);
+         setActiveChats([]);
+         setSearchResults([]);
+         setIsLoadingAuth(false);
       }
-      setIsLoadingAuth(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+        authUnsubscribe();
+        if (profileUnsubscribe) profileUnsubscribe();
+    };
   }, []);
 
   // Fetch Data for Global Search & Notifications
@@ -80,12 +105,6 @@ const App: React.FC = () => {
             unsubInventory(); 
             unsubChats();
         };
-    } else {
-        // Optimization: Immediately clear heavy data arrays on logout to free memory
-        setAllPatients([]);
-        setAllInventory([]);
-        setActiveChats([]);
-        setSearchResults([]);
     }
   }, [currentUser]);
 
@@ -165,10 +184,8 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-        // Optimization: Only call signOut. 
-        // Do NOT manually set state here (e.g. setUserProfile(null)). 
-        // Rely on onAuthStateChanged to handle state updates to avoid race conditions and UI freezing.
         await signOut(auth);
+        // State cleanup handled by onAuthStateChanged
     } catch (error) {
         console.error("Logout failed", error);
     }

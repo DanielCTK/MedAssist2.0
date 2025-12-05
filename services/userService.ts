@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
 import { User } from "firebase/auth";
 import { UserProfile } from "../types";
@@ -13,6 +13,20 @@ const CLOUD_NAME = "dii5mvade";
 const UPLOAD_PRESET = "medassist_preset"; 
 
 // =================================================================================
+
+// --- SUBSCRIBE TO USER PROFILE (REAL-TIME) ---
+export const subscribeToUserProfile = (uid: string, onUpdate: (profile: UserProfile | null) => void) => {
+    return onSnapshot(doc(db, COLLECTION_NAME, uid), (docSnap) => {
+        if (docSnap.exists()) {
+            onUpdate(docSnap.data() as UserProfile);
+        } else {
+            onUpdate(null);
+        }
+    }, (error) => {
+        console.error("Profile subscription error:", error);
+        onUpdate(null);
+    });
+};
 
 // --- GET OR CREATE USER PROFILE ---
 export const getUserProfile = async (user: User, role?: 'doctor' | 'patient'): Promise<UserProfile> => {
