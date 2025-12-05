@@ -50,14 +50,19 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
 
   // Helper to get translated error
   const getErrorMessage = (code: string) => {
+    // Check for common auth error codes
     switch(code) {
-        case 'auth/invalid-credential': return t.auth.errors.invalid_credential;
+        case 'auth/invalid-credential': 
+        case 'auth/invalid-login-credentials':
+            return t.auth.errors.invalid_credential;
         case 'auth/user-not-found': return t.auth.errors.user_not_found;
         case 'auth/wrong-password': return t.auth.errors.wrong_password;
         case 'auth/email-already-in-use': return t.auth.errors.email_in_use;
         case 'auth/weak-password': return t.auth.errors.weak_password;
         case 'auth/invalid-email': return t.auth.errors.invalid_email;
-        default: return t.auth.errors.general;
+        case 'auth/network-request-failed': return "Network error. Check your connection.";
+        case 'auth/too-many-requests': return "Too many failed attempts. Try again later.";
+        default: return t.auth.errors.general; 
     }
   };
 
@@ -93,8 +98,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
         
         onLogin();
     } catch (err: any) {
-        console.error(err);
-        setError(getErrorMessage(err.code));
+        // Suppress console error for expected auth failures to avoid alarm
+        const errorCode = err.code;
+        if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password') {
+            console.warn("Authentication failed (expected):", errorCode);
+        } else {
+            console.error("Auth Error:", err);
+        }
+        setError(getErrorMessage(errorCode));
     } finally {
         setIsLoading(false);
     }
@@ -117,7 +128,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
       } catch (err: any) {
           console.error("Google Auth Error:", err);
           if (err.code !== 'auth/popup-closed-by-user') {
-              setError(err.message || t.auth.errors.google_failed);
+              // Try to map code first, otherwise fall back to message or default
+              const mappedMsg = getErrorMessage(err.code);
+              setError(mappedMsg !== t.auth.errors.general ? mappedMsg : (err.message || t.auth.errors.google_failed));
           }
       } finally {
           setIsGoogleLoading(false);

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight } from 'lucide-react';
+import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope } from 'lucide-react';
+
+// Relative imports for components in the same directory
 import Sidebar from './Sidebar';
 import Dashboard from './Dashboard';
 import DiagnosisView from './DiagnosisView';
@@ -10,11 +12,13 @@ import LandingPage from './LandingPage';
 import SettingsView from './SettingsView';
 import AIChatbot from './AIChatbot';
 import InsightsView from './InsightsView'; 
-import PatientDashboard from './PatientDashboard'; // Import Patient Dashboard
+import PatientDashboard from './PatientDashboard'; 
+
+// Relative imports for parent directories
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { getUserProfile, subscribeToUserProfile } from '../services/userService';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { getUserProfile, subscribeToUserProfile, updateUserProfile, getUserProfile as createProfile } from '../services/userService';
 import { UserProfile, Patient, InventoryItem, ChatSession } from '../types';
 import { subscribeToPatients } from '../services/patientService';
 import { subscribeToInventory } from '../services/inventoryService';
@@ -26,9 +30,10 @@ import { subscribeToActiveChats } from '../services/chatService';
 const ASANOHA_PATTERN = `data:image/svg+xml,%3Csvg width='60' height='104' viewBox='0 0 60 104' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 52L60 0M30 52L60 104M30 52L0 104M30 52L0 0M30 0L0 52M30 104L0 52M30 0L60 52M30 104L60 52M0 52h60M30 0v104' stroke='%23888888' stroke-width='1' fill='none' opacity='0.07'/%3E%3C/svg%3E`;
 
 const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(false); 
   const [currentView, setCurrentView] = useState('dashboard'); 
   const [isDarkMode, setIsDarkMode] = useState(false); 
   
@@ -55,36 +60,32 @@ const App: React.FC = () => {
       setCurrentUser(user);
       
       if (user) {
-         // Subscribe to profile changes in real-time. 
-         // This ensures that if AuthModal creates a profile slightly later, or updates role, UI reacts immediately.
+         setIsProfileLoading(true);
+         
+         // 1. Subscribe to profile changes
          profileUnsubscribe = subscribeToUserProfile(user.uid, async (profile) => {
              if (profile) {
                  setUserProfile(profile);
+                 setIsProfileLoading(false);
              } else {
-                 // Profile doesn't exist yet (or deleted).
-                 // Try to create a default one if it persists missing, 
-                 // but rely on AuthModal for initial creation to get correct role.
-                 // We fetch once to force creation logic if needed (fallback).
-                 try {
-                    const newProfile = await getUserProfile(user); 
-                    setUserProfile(newProfile);
-                 } catch (e) {
-                    console.error("Error creating default profile", e);
-                 }
+                 // 2. STOP AUTO-CREATION.
+                 // If profile is null, we set it to null and let the UI render the "Role Selection" screen.
+                 // This prevents accidentally defaulting to 'doctor'.
+                 setUserProfile(null);
+                 setIsProfileLoading(false);
              }
-             setIsLoadingAuth(false); // Auth is ready when profile is loaded/attempted
          });
       } else {
          if (profileUnsubscribe) profileUnsubscribe();
          setUserProfile(null);
          setCurrentView('dashboard');
-         // Clear data on logout
          setAllPatients([]);
          setAllInventory([]);
          setActiveChats([]);
          setSearchResults([]);
-         setIsLoadingAuth(false);
+         setIsProfileLoading(false);
       }
+      setIsLoadingAuth(false);
     });
 
     return () => {
@@ -182,13 +183,32 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
+  // --- UPDATED LOGOUT LOGIC ---
   const handleLogout = async () => {
     try {
+        setIsLoadingAuth(true); // Force loading screen immediately
         await signOut(auth);
-        // State cleanup handled by onAuthStateChanged
+        // Clean up states locally to prevent flashes
+        setUserProfile(null);
+        setCurrentUser(null);
+        setCurrentView('dashboard');
     } catch (error) {
         console.error("Logout failed", error);
+        setIsLoadingAuth(false); // Only unset loading if failed
     }
+  };
+
+  const handleRoleSelection = async (role: 'doctor' | 'patient') => {
+      if (!currentUser) return;
+      setIsProfileLoading(true);
+      try {
+          // Explicitly create the profile with the selected role
+          await createProfile(currentUser, role);
+          // The real-time listener will pick this up and update `userProfile`
+      } catch (error) {
+          console.error("Failed to set role", error);
+          setIsProfileLoading(false);
+      }
   };
 
   const pageVariants = {
@@ -203,16 +223,60 @@ const App: React.FC = () => {
     duration: 0.4
   } as const;
 
-  if (isLoadingAuth) {
+  // 1. GLOBAL LOADING STATE
+  if (isLoadingAuth || (currentUser && isProfileLoading)) {
     return (
         <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white">
             <Loader2 size={48} className="animate-spin text-red-600 mb-4" />
-            <p className="text-xs uppercase tracking-widest font-bold opacity-50">Initializing System...</p>
+            <p className="text-xs uppercase tracking-widest font-bold opacity-50">
+                {isLoadingAuth ? 'Initializing...' : 'Setting up profile...'}
+            </p>
         </div>
     );
   }
 
-  // --- RENDER PATIENT VIEW IF ROLE IS PATIENT ---
+  // 2. MISSING PROFILE STATE (Role Selection)
+  // If we have a user but no profile, ask them who they are.
+  if (currentUser && !userProfile) {
+      return (
+          <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white p-6">
+              <div className="max-w-md w-full text-center">
+                  <h1 className="text-3xl font-black mb-2">Welcome to MedAssist</h1>
+                  <p className="text-slate-400 mb-8">Please select your role to continue setting up your account.</p>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                      <button 
+                        onClick={() => handleRoleSelection('doctor')}
+                        className="p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-blue-500 hover:bg-slate-800 transition-all group flex flex-col items-center"
+                      >
+                          <div className="p-4 bg-blue-500/10 rounded-full mb-4 text-blue-500 group-hover:scale-110 transition-transform">
+                              <Stethoscope size={32} />
+                          </div>
+                          <h3 className="font-bold text-lg">I am a Doctor</h3>
+                          <p className="text-xs text-slate-500 mt-2">Access diagnostics, patient records, and tools.</p>
+                      </button>
+
+                      <button 
+                        onClick={() => handleRoleSelection('patient')}
+                        className="p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-green-500 hover:bg-slate-800 transition-all group flex flex-col items-center"
+                      >
+                          <div className="p-4 bg-green-500/10 rounded-full mb-4 text-green-500 group-hover:scale-110 transition-transform">
+                              <User size={32} />
+                          </div>
+                          <h3 className="font-bold text-lg">I am a Patient</h3>
+                          <p className="text-xs text-slate-500 mt-2">View health records, appointments, and results.</p>
+                      </button>
+                  </div>
+
+                  <button onClick={handleLogout} className="mt-8 text-slate-500 text-xs hover:text-white transition-colors underline">
+                      Log Out
+                  </button>
+              </div>
+          </div>
+      );
+  }
+
+  // 3. PATIENT INTERFACE (Instant Switch based on Role)
   if (currentUser && userProfile?.role === 'patient') {
       return (
           <PatientDashboard 
@@ -225,7 +289,7 @@ const App: React.FC = () => {
       );
   }
 
-  // --- RENDER MAIN DOCTOR APP ---
+  // 4. DOCTOR INTERFACE
   return (
     <div className={`h-screen w-full font-sans overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <AnimatePresence mode="wait">

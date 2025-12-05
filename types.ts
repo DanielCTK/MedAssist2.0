@@ -20,6 +20,7 @@ export interface UserProfile {
   bio?: string;
   language?: string;
   themePreference?: 'dark' | 'light';
+  doctorUid?: string; // For patients linked to a doctor
 }
 
 export interface DiagnosisRecord {
@@ -32,7 +33,8 @@ export interface DiagnosisRecord {
 }
 
 export interface Patient {
-  id: string;
+  id: string; // Firestore Document ID
+  uid?: string; // Linked User Auth ID (Crucial for Chat)
   doctorUid: string;
   name: string;
   age: number;

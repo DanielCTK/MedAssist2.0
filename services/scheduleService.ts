@@ -1,5 +1,5 @@
 import { db } from "./firebase";
-import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, orderBy } from "firebase/firestore";
+import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, orderBy, or } from "firebase/firestore";
 import { Appointment } from "../types";
 
 const COLLECTION_NAME = "appointments";
@@ -21,6 +21,36 @@ export const subscribeToAppointments = (
             
             // Client-side sort by startTime
             items.sort((a, b) => a.startTime - b.startTime);
+            
+            onData(items);
+        },
+        onError
+    );
+};
+
+// --- SYNC: GET APPOINTMENTS FOR A SPECIFIC PATIENT (REAL-TIME) ---
+export const subscribeToPatientAppointments = (
+    patientUid: string,
+    patientEmail: string,
+    onData: (appointments: Appointment[]) => void,
+    onError: (error: any) => void
+) => {
+    // Query appointments where patientId matches UID OR notes contains email (fallback linkage)
+    // Using a simpler query for stability: Fetch recent appointments
+    const q = query(
+        collection(db, COLLECTION_NAME), 
+        where("patientId", "==", patientUid)
+    );
+
+    return onSnapshot(q,
+        (snapshot) => {
+            const items = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            })) as Appointment[];
+            
+            // Sort by date/time descending (newest first)
+            items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             
             onData(items);
         },

@@ -47,7 +47,10 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                 setPatients(data);
                 setLoading(false);
             },
-            (err) => console.error(err)
+            (err) => {
+                if (err?.code !== 'permission-denied') console.error(err);
+                setLoading(false);
+            }
         );
         return () => unsubscribe();
     }

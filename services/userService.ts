@@ -41,20 +41,29 @@ export const getUserProfile = async (user: User, role?: 'doctor' | 'patient'): P
         }
         return data;
     } else {
+        const defaultRole = role || 'doctor';
+        
+        // Construct the base profile to ensure no 'undefined' values are passed to Firestore
         const newProfile: UserProfile = {
             uid: user.uid,
-            role: role || 'doctor', // Use provided role or default to doctor
-            displayName: user.displayName || (role === 'patient' ? 'Patient' : 'Doctor'),
+            role: defaultRole,
+            displayName: user.displayName || (defaultRole === 'patient' ? 'Patient' : 'Doctor'),
             email: user.email || '',
             photoURL: user.photoURL || '',
             bannerURL: '',
-            specialty: role === 'doctor' ? 'Medical Specialist' : undefined,
-            hospital: role === 'doctor' ? 'General Hospital' : undefined,
             location: 'Ho Chi Minh City, Vietnam',
             phone: '',
-            bio: role === 'doctor' ? 'Dedicated medical professional.' : 'Patient account.',
+            bio: defaultRole === 'doctor' ? 'Dedicated medical professional.' : 'Patient account.',
             language: 'English'
         };
+
+        // Only add specific fields if they apply. 
+        // IMPORTANT: Firestore throws error if value is 'undefined', so we strictly add these only for doctors.
+        if (defaultRole === 'doctor') {
+            newProfile.specialty = 'Medical Specialist';
+            newProfile.hospital = 'General Hospital';
+        }
+
         await setDoc(userRef, newProfile);
         return newProfile;
     }
@@ -64,7 +73,11 @@ export const getUserProfile = async (user: User, role?: 'doctor' | 'patient'): P
 export const updateUserProfile = async (uid: string, data: Partial<UserProfile>) => {
     try {
         const userRef = doc(db, COLLECTION_NAME, uid);
-        await updateDoc(userRef, data);
+        // Clean data to remove undefined values before updating
+        const cleanData = Object.fromEntries(
+            Object.entries(data).filter(([_, v]) => v !== undefined)
+        );
+        await updateDoc(userRef, cleanData);
     } catch (error) {
         console.error("Error updating profile:", error);
         throw error;

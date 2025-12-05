@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserProfile, Appointment, DiagnosisRecord, ChatMessage } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X } from 'lucide-react';
+import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X, Globe, MapPin, Camera, Loader2, Stethoscope, AlertTriangle, RefreshCw } from 'lucide-react';
 import { User } from 'firebase/auth';
 import SettingsView from './SettingsView';
-import { subscribeToAppointments, addAppointment } from '../services/scheduleService';
+import { subscribeToPatientAppointments, addAppointment } from '../services/scheduleService';
 import { subscribeToMessages, sendMessage, getChatId } from '../services/chatService';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { checkAndAutoLinkPatient } from '../services/patientService'; // IMPORTED
+import { collection, query, where, getDocs, limit, onSnapshot, or } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 interface PatientDashboardProps {
@@ -33,7 +34,7 @@ const TabButton = ({ id, icon: Icon, label, currentTab, setCurrentTab, isDarkMod
 );
 
 const RecordCard: React.FC<{ record: DiagnosisRecord; isDarkMode: boolean }> = ({ record, isDarkMode }) => (
-    <div className={`p-4 rounded-2xl mb-4 border flex items-center justify-between transition-all ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+    <div className={`p-4 rounded-2xl mb-4 border flex items-center justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-xl cursor-pointer ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-blue-200'}`}>
         <div className="flex items-center gap-4">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${
                 record.grade === 0 ? 'bg-emerald-100 text-emerald-600' : 
@@ -54,11 +55,14 @@ const RecordCard: React.FC<{ record: DiagnosisRecord; isDarkMode: boolean }> = (
 );
 
 const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, currentUser, userProfile, onLogout, toggleTheme }) => {
-    const { t, language } = useLanguage();
+    const { t, language, setLanguage } = useLanguage();
     const [currentTab, setCurrentTab] = useState<TabID>('home');
     const [myAppointments, setMyAppointments] = useState<Appointment[]>([]);
     const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisRecord[]>([]);
+    const [assignedDoctorId, setAssignedDoctorId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
 
     // Chat State
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -70,75 +74,123 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     const [newBookDate, setNewBookDate] = useState("");
     const [newBookReason, setNewBookReason] = useState("");
 
-    // --- DATA FETCHING ---
+    // --- AUTO-LINK EFFECT ---
+    useEffect(() => {
+        const attemptAutoLink = async () => {
+            if (currentUser && userProfile && !userProfile.doctorUid) {
+                // If user doesn't have a doctor assigned, try to auto-link
+                const foundDoctorId = await checkAndAutoLinkPatient(currentUser, userProfile);
+                if (foundDoctorId) {
+                    setAssignedDoctorId(foundDoctorId);
+                    // Force refresh or notification could be added here
+                }
+            } else if (userProfile?.doctorUid) {
+                setAssignedDoctorId(userProfile.doctorUid);
+            }
+        };
+        attemptAutoLink();
+    }, [currentUser, userProfile]);
+
+    // --- MANUAL SYNC FUNCTION ---
+    const handleManualSync = async () => {
+        if (!currentUser || !userProfile) return;
+        setIsSyncing(true);
+        try {
+            // 1. Trigger the auto-link logic manually
+            const doctorId = await checkAndAutoLinkPatient(currentUser, userProfile);
+            
+            // 2. Update local state if found
+            if (doctorId) {
+                setAssignedDoctorId(doctorId);
+            } else if (userProfile.doctorUid) {
+                // If already linked in profile, ensure state matches
+                setAssignedDoctorId(userProfile.doctorUid);
+            }
+
+            // 3. Simulate a short delay for UX feedback (so the user sees something happened)
+            await new Promise(resolve => setTimeout(resolve, 800));
+            alert(t.patientDashboard.sync_success || "Data synchronized with Doctor.");
+        } catch (error) {
+            console.error("Sync failed", error);
+            alert("Sync failed. Please try again.");
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    // --- DATA FETCHING & SYNCHRONIZATION ---
     useEffect(() => {
         if (!currentUser) return;
-
         setLoading(true);
 
-        // 1. Fetch Appointments (Simplified matching by name/email since standard appt struct might not have patientUid yet)
-        const dateStr = new Date().toISOString().split('T')[0];
-        // In a real app, you'd query "appointments" where "patientId" == currentUser.uid
-        // Here we simulate by filtering the general feed for demo purposes or fetch basic range
-        const unsubAppt = subscribeToAppointments(dateStr, (data) => {
-             // Mock filter for demo: Show all appointments as if they are the patient's, 
-             // OR strictly filter if patientName matches (recommended if data exists)
-             const myApps = data.filter(a => 
-                 a.patientName.toLowerCase() === userProfile?.displayName.toLowerCase() || 
-                 a.patientName === currentUser.email
-             );
-             setMyAppointments(myApps);
-        }, console.error);
+        // 1. SYNC APPOINTMENTS (Real-time)
+        const unsubAppt = subscribeToPatientAppointments(currentUser.uid, currentUser.email || '', (data) => {
+             setMyAppointments(data);
+        }, (err) => {
+            if (err?.code !== 'permission-denied' && !err?.message?.includes('insufficient permissions')) {
+                console.error("Appointment fetch error", err);
+            }
+        });
 
-        // 2. Fetch Diagnosis History (From "patients" collection -> find doc with user's email/uid -> get subcollection or array)
-        // Since the current architecture links Patients to Doctors, we need to find the Patient Document that represents THIS user.
-        // We'll search the 'patients' collection for a match on email.
-        const fetchHistory = async () => {
-            try {
-                const q = query(collection(db, "patients"), where("email", "==", currentUser.email), limit(1));
-                const querySnapshot = await getDocs(q);
-                if (!querySnapshot.empty) {
-                    const patientDoc = querySnapshot.docs[0].data();
+        // 2. SYNC MEDICAL RECORDS (Real-time)
+        let unsubPatientData: () => void = () => {};
+        
+        const fetchPatientData = async () => {
+            // Prioritize UID for query
+            let q;
+            if (currentUser.uid) {
+                 q = query(collection(db, "patients"), where("uid", "==", currentUser.uid), limit(1));
+            } else if (currentUser.email) {
+                 q = query(collection(db, "patients"), where("email", "==", currentUser.email), limit(1));
+            } else {
+                return;
+            }
+            
+            unsubPatientData = onSnapshot(q, (snapshot) => {
+                if (!snapshot.empty) {
+                    const patientDoc = snapshot.docs[0].data();
+                    
+                    // Sync Diagnosis History
                     if (patientDoc.diagnosisHistory) {
                         setDiagnosisHistory(patientDoc.diagnosisHistory.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
                     }
+                    
+                    // Fallback Doctor ID
+                    if (!userProfile?.doctorUid && patientDoc.doctorUid) {
+                        setAssignedDoctorId(patientDoc.doctorUid);
+                    }
                 }
-            } catch (e) {
-                console.error("Error fetching history", e);
-            } finally {
-                setLoading(false);
-            }
+            }, (err) => {
+                // Suppress common permission errors initially
+                if (err?.code !== 'permission-denied') console.error(err);
+            });
         };
-        fetchHistory();
+        fetchPatientData();
 
-        return () => unsubAppt();
+        return () => {
+            unsubAppt();
+            unsubPatientData();
+        };
     }, [currentUser, userProfile]);
 
     // --- CHAT SUBSCRIPTION ---
     useEffect(() => {
-        if (currentUser && currentTab === 'chat') {
-            // Assume chatting with a default "Doctor" or support ID for now, 
-            // or find the doctorId from the patient record. 
-            // For demo: Chat ID = patientUid_adminUid (placeholder) or just patientUid_support
-            // We'll use a fixed ID for the "Doctor" side for simplicity in this demo: "DOCTOR_MAIN"
-            const doctorId = "DOCTOR_MAIN"; 
-            const chatId = getChatId(currentUser.uid, doctorId);
-            
+        if (currentUser && currentTab === 'chat' && assignedDoctorId) {
+            const chatId = getChatId(currentUser.uid, assignedDoctorId);
             const unsubChat = subscribeToMessages(chatId, (msgs) => {
                 setMessages(msgs);
             });
             return () => unsubChat();
         }
-    }, [currentUser, currentTab]);
+    }, [currentUser, currentTab, assignedDoctorId]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, currentTab]);
 
     const handleSendMessage = async () => {
-        if (!inputMsg.trim() || !currentUser) return;
-        const doctorId = "DOCTOR_MAIN";
-        const chatId = getChatId(currentUser.uid, doctorId);
+        if (!inputMsg.trim() || !currentUser || !assignedDoctorId) return;
+        const chatId = getChatId(currentUser.uid, assignedDoctorId);
         await sendMessage(chatId, currentUser.uid, inputMsg);
         setInputMsg("");
     };
@@ -150,15 +202,15 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         try {
             await addAppointment({
                 patientId: currentUser.uid,
-                patientName: userProfile?.displayName || "Patient",
+                patientName: userProfile?.displayName || currentUser.displayName || "Patient",
                 title: newBookReason || "General Checkup",
                 type: 'Consult',
                 date: newBookDate,
-                startTime: 9, // Default
+                startTime: 9, 
                 duration: 1,
                 status: 'Pending'
             });
-            alert("Appointment request sent!");
+            alert(language === 'vi' ? "Yêu cầu đã gửi thành công! Bác sĩ sẽ xác nhận sớm." : "Appointment request sent! Doctor will confirm.");
             setIsBookModalOpen(false);
             setNewBookReason("");
             setNewBookDate("");
@@ -167,118 +219,214 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         }
     };
 
-    // --- CALCULATED STATES ---
+    const handleLogoutWrapper = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isLoggingOut) return;
+
+        setIsLoggingOut(true);
+        try {
+            await onLogout();
+            setIsLoggingOut(false);
+        } catch (e) {
+            console.error(e);
+            setIsLoggingOut(false);
+        }
+    };
+
     const latestScan = diagnosisHistory.length > 0 ? diagnosisHistory[0] : null;
-    const healthScore = latestScan 
-        ? (latestScan.grade === 0 ? 100 : latestScan.grade === 1 ? 85 : latestScan.grade === 2 ? 70 : latestScan.grade === 3 ? 50 : 30) 
-        : 100;
+    const heroBackground = userProfile?.bannerURL || "https://images.unsplash.com/photo-1519681393798-38e43269d877?q=80&w=2070&auto=format&fit=crop";
     
-    const getStatusColor = (score: number) => {
-        if (score >= 90) return "text-emerald-500";
-        if (score >= 70) return "text-blue-500";
-        if (score >= 50) return "text-orange-500";
-        return "text-red-500";
-    };
-
-    const getStatusText = (score: number) => {
-        if (score >= 90) return t.patientDashboard.status.excellent;
-        if (score >= 70) return t.patientDashboard.status.good;
-        if (score >= 50) return t.patientDashboard.status.warning;
-        return t.patientDashboard.status.critical;
-    };
-
     return (
         <div className={`h-screen w-full flex flex-col ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'} font-sans`}>
             
             {/* --- HEADER --- */}
             <header className={`px-6 py-5 flex justify-between items-center z-10 ${isDarkMode ? 'bg-black' : 'bg-white'} border-b ${isDarkMode ? 'border-slate-900' : 'border-slate-100'}`}>
-                <div>
-                    <p className={`text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>{t.patientDashboard.welcome}</p>
-                    <h1 className="text-xl font-black tracking-tight">{userProfile?.displayName?.split(' ')[0] || 'Patient'}</h1>
-                </div>
                 <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-white shadow-md cursor-pointer" onClick={() => setCurrentTab('profile')}>
+                        <img src={userProfile?.photoURL || "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop"} className="w-full h-full object-cover" alt="Profile"/>
+                    </div>
+                    <div>
+                        <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>{t.patientDashboard.welcome}</p>
+                        <h1 className="text-sm font-black tracking-tight">{userProfile?.displayName || 'Patient'}</h1>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    {/* SYNC BUTTON */}
+                    <button 
+                        onClick={handleManualSync}
+                        disabled={isSyncing}
+                        className={`p-2 rounded-full flex items-center justify-center transition-all ${isDarkMode ? 'bg-slate-900 text-blue-400 hover:bg-slate-800' : 'bg-slate-100 text-blue-600 hover:bg-slate-200'}`}
+                        title={t.patientDashboard.sync_data}
+                    >
+                        <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
+                    </button>
+
+                    {/* LANGUAGE TOGGLE */}
+                    <button 
+                        onClick={() => setLanguage(language === 'en' ? 'vi' : 'en')}
+                        className={`p-2 rounded-full flex items-center justify-center font-black text-[10px] w-9 h-9 border transition-all ${isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                    >
+                        {language.toUpperCase()}
+                    </button>
+
                     <button onClick={toggleTheme} className={`p-2 rounded-full ${isDarkMode ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600'}`}>
                         {isDarkMode ? <Sun size={18}/> : <Moon size={18}/>}
                     </button>
                     <button className={`relative p-2 rounded-full ${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
                         <Bell size={18} />
-                        <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                        {/* Notify if appointment approved/done */}
+                        {myAppointments.some(a => a.status === 'Done') && (
+                            <span className="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full border border-white"></span>
+                        )}
                     </button>
-                    <div onClick={() => setCurrentTab('profile')} className="w-9 h-9 rounded-full overflow-hidden border-2 border-white shadow-md cursor-pointer">
-                        <img src={userProfile?.photoURL || "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop"} className="w-full h-full object-cover" alt="Profile"/>
-                    </div>
                 </div>
             </header>
 
             {/* --- MAIN CONTENT AREA --- */}
-            <main className="flex-1 overflow-y-auto custom-scrollbar p-6 relative">
+            <main className="flex-1 overflow-y-auto custom-scrollbar p-0 relative">
                 <AnimatePresence mode="wait">
                     
-                    {/* VIEW: HOME */}
+                    {/* VIEW: HOME - LANDSCAPE DESIGN */}
                     {currentTab === 'home' && (
                         <motion.div 
                             key="home"
-                            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-                            className="space-y-6"
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            className="relative min-h-full flex flex-col"
                         >
-                            {/* Health Card */}
-                            <div className={`relative w-full rounded-3xl p-6 overflow-hidden shadow-2xl ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
-                                <div className={`absolute top-0 right-0 w-64 h-64 rounded-full filter blur-[80px] opacity-20 ${healthScore > 80 ? 'bg-emerald-500' : 'bg-orange-500'}`} />
+                            {/* --- HERO SECTION LANDSCAPE --- */}
+                            <div className="relative w-full h-[500px] overflow-hidden rounded-b-[40px] shadow-2xl group">
+                                {/* Digital Landscape Art Background */}
+                                <div 
+                                    className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-1000"
+                                    style={{ 
+                                        backgroundImage: `url('${heroBackground}')`,
+                                        filter: isDarkMode ? 'brightness(0.6) saturate(1.2)' : 'brightness(1.05) saturate(1.1)' 
+                                    }}
+                                />
                                 
-                                <div className="relative z-10 flex flex-col items-center text-center py-4">
-                                    <div className="relative w-40 h-40 mb-4 flex items-center justify-center">
-                                        <svg className="w-full h-full transform -rotate-90">
-                                            <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="12" fill="transparent" className={`${isDarkMode ? 'text-slate-800' : 'text-slate-100'}`} />
-                                            <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="12" fill="transparent" 
-                                                strokeDasharray={440}
-                                                strokeDashoffset={440 - (440 * healthScore) / 100}
-                                                className={`${getStatusColor(healthScore)} transition-all duration-1000 ease-out`}
-                                                strokeLinecap="round"
-                                            />
-                                        </svg>
-                                        <div className="absolute flex flex-col items-center">
-                                            <span className={`text-4xl font-black ${getStatusColor(healthScore)}`}>{healthScore}</span>
-                                            <span className="text-[10px] uppercase font-bold text-slate-400">Score</span>
+                                {/* Overlay Gradients - ADAPTIVE */}
+                                <div className={`absolute inset-0 bg-gradient-to-b transition-colors duration-1000 ${
+                                    isDarkMode 
+                                    ? 'from-transparent via-indigo-950/50 to-slate-950/95' 
+                                    : 'from-transparent via-sky-200/20 to-sky-600/90'
+                                }`} />
+                                
+                                <div className={`absolute inset-0 bg-gradient-to-r transition-colors duration-1000 ${
+                                    isDarkMode
+                                    ? 'from-slate-900/90 via-indigo-950/60 to-transparent'
+                                    : 'from-sky-500/90 via-sky-400/50 to-transparent'
+                                }`} />
+
+                                {/* Glowing Moon/Sun Effect */}
+                                <div className={`absolute top-10 right-20 w-32 h-32 rounded-full blur-[60px] opacity-40 animate-pulse transition-colors duration-1000 ${isDarkMode ? 'bg-indigo-500' : 'bg-white'}`} />
+
+                                {/* Change Background Button */}
+                                <button
+                                    onClick={() => setCurrentTab('profile')}
+                                    className="absolute top-6 right-6 p-2.5 bg-black/20 backdrop-blur-md rounded-full text-white/80 hover:bg-white/20 hover:text-white transition-all opacity-80 hover:opacity-100 z-30 border border-white/10 hover:scale-110"
+                                    title={language === 'vi' ? "Đổi hình nền" : "Customize Background"}
+                                >
+                                    <Camera size={18} />
+                                </button>
+
+                                {/* Content */}
+                                <div className="relative z-10 h-full flex flex-col justify-center px-8 md:px-12 max-w-2xl text-white">
+                                    <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }}>
+                                        <div className="flex items-center space-x-2 mb-4">
+                                            <div className="h-0.5 w-8 bg-white/60"></div>
+                                            <span className="text-xs font-bold uppercase tracking-[0.2em] text-white/90">
+                                                {language === 'vi' ? 'HỆ THỐNG Y TẾ SỐ' : 'DIGITAL HEALTH SYSTEM'}
+                                            </span>
                                         </div>
-                                    </div>
-                                    <h3 className={`text-xl font-bold ${getStatusColor(healthScore)} mb-1`}>{getStatusText(healthScore)}</h3>
-                                    <p className="text-xs text-slate-500 max-w-[200px]">{t.patientDashboard.health_score}</p>
+                                        <h1 className="text-5xl md:text-6xl font-black leading-tight mb-6 drop-shadow-lg text-white">
+                                            {language === 'vi' ? 'Sức Khỏe' : 'Health'} <br/>
+                                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-100 to-blue-200">
+                                                {language === 'vi' ? 'Tầm Nhìn Mới' : 'Reimagined.'}
+                                            </span>
+                                        </h1>
+                                        <p className="text-lg text-white/90 mb-8 max-w-md leading-relaxed font-medium drop-shadow-md">
+                                            {language === 'vi' 
+                                                ? 'Theo dõi sức khỏe võng mạc, quản lý lịch hẹn và kết nối với bác sĩ chuyên khoa mọi lúc, mọi nơi.' 
+                                                : 'Track retina health, manage appointments, and connect with specialists anytime, anywhere.'}
+                                        </p>
+                                        <button 
+                                            onClick={() => setIsBookModalOpen(true)}
+                                            className="px-8 py-4 bg-white text-blue-600 rounded-full font-bold uppercase text-xs tracking-widest hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] transition-all flex items-center w-max"
+                                        >
+                                            {language === 'vi' ? 'Bắt Đầu Ngay' : 'Get Started'} <ChevronRight size={16} className="ml-2"/>
+                                        </button>
+                                    </motion.div>
                                 </div>
                             </div>
 
-                            {/* Actions Row */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <button onClick={() => setCurrentTab('schedule')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all ${isDarkMode ? 'bg-slate-900 hover:bg-slate-800' : 'bg-white shadow-sm hover:shadow-md'}`}>
-                                    <div className="p-3 bg-blue-500/10 text-blue-500 rounded-full"><Calendar size={24} /></div>
-                                    <span className="text-xs font-bold">{t.patientDashboard.appointments}</span>
-                                </button>
-                                <button onClick={() => setCurrentTab('chat')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all ${isDarkMode ? 'bg-slate-900 hover:bg-slate-800' : 'bg-white shadow-sm hover:shadow-md'}`}>
-                                    <div className="p-3 bg-purple-500/10 text-purple-500 rounded-full"><MessageCircle size={24} /></div>
-                                    <span className="text-xs font-bold">{t.patientDashboard.contact_doctor}</span>
-                                </button>
-                            </div>
-
-                            {/* Upcoming */}
-                            <div>
-                                <div className="flex justify-between items-center mb-4">
-                                    <h3 className="font-bold text-sm uppercase tracking-wide opacity-70">Upcoming</h3>
-                                    <button className="text-blue-500 text-xs font-bold" onClick={() => setIsBookModalOpen(true)}>+ New</button>
-                                </div>
-                                {myAppointments.length > 0 ? (
-                                    myAppointments.map(app => (
-                                        <div key={app.id} className={`p-4 rounded-2xl border-l-4 border-blue-500 mb-2 flex items-center justify-between ${isDarkMode ? 'bg-slate-900' : 'bg-white shadow-sm'}`}>
-                                            <div>
-                                                <h4 className="font-bold text-sm">{app.title}</h4>
-                                                <p className="text-xs opacity-60 flex items-center mt-1"><Clock size={10} className="mr-1"/> {app.date} @ {app.startTime}:00</p>
-                                            </div>
-                                            <span className="px-2 py-1 bg-blue-500/10 text-blue-500 text-[10px] font-bold rounded uppercase">{app.status}</span>
+                            {/* --- FLOATING INFO CARDS --- */}
+                            <div className="px-6 -mt-16 relative z-20 pb-20">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Card 1: Latest Diagnosis */}
+                                    <motion.div 
+                                        initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }}
+                                        className={`p-6 rounded-3xl backdrop-blur-xl border shadow-xl flex items-center justify-between hover:-translate-y-2 hover:shadow-2xl transition-all duration-300 ${isDarkMode ? 'bg-slate-900/80 border-slate-700 hover:border-slate-600' : 'bg-white/80 border-white hover:border-blue-200'}`}
+                                    >
+                                        <div>
+                                            <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">
+                                                {language === 'vi' ? 'Kết quả gần nhất' : 'Latest Result'}
+                                            </p>
+                                            <h3 className={`text-xl font-bold ${latestScan?.grade === 0 ? 'text-green-500' : 'text-orange-500'}`}>
+                                                {latestScan ? (latestScan.grade === 0 ? (language === 'vi' ? 'Võng Mạc Khỏe' : 'Healthy Retina') : `Grade ${latestScan.grade} DR`) : (language === 'vi' ? 'Chưa có dữ liệu' : 'No Data')}
+                                            </h3>
+                                            <p className="text-xs opacity-60 mt-1">{latestScan ? new Date(latestScan.date).toLocaleDateString() : (language === 'vi' ? 'Liên hệ bác sĩ để khám' : 'Contact doctor for scan')}</p>
                                         </div>
-                                    ))
-                                ) : (
-                                    <div className="p-6 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 text-center text-xs opacity-50">
-                                        {t.patientDashboard.no_appointments}
+                                        <div className={`p-4 rounded-full ${latestScan?.grade === 0 ? 'bg-green-500/10 text-green-500' : 'bg-orange-500/10 text-orange-500'}`}>
+                                            <Activity size={24} />
+                                        </div>
+                                    </motion.div>
+
+                                    {/* Card 2: Upcoming Appt */}
+                                    <motion.div 
+                                        initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.5 }}
+                                        className={`p-6 rounded-3xl backdrop-blur-xl border shadow-xl flex items-center justify-between cursor-pointer hover:-translate-y-2 hover:shadow-2xl transition-all duration-300 ${isDarkMode ? 'bg-slate-900/80 border-slate-700 hover:border-slate-600' : 'bg-white/80 border-white hover:border-blue-200'}`}
+                                        onClick={() => setCurrentTab('schedule')}
+                                    >
+                                        <div>
+                                            <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">
+                                                {language === 'vi' ? 'Lịch hẹn sắp tới' : 'Next Appointment'}
+                                            </p>
+                                            <h3 className="text-xl font-bold">
+                                                {myAppointments.length > 0 ? new Date(myAppointments[0].date).toLocaleDateString() : (language === 'vi' ? 'Trống' : 'None')}
+                                            </h3>
+                                            <p className="text-xs opacity-60 mt-1">
+                                                {myAppointments.length > 0 ? myAppointments[0].title : (language === 'vi' ? 'Đặt lịch ngay' : 'Book now')}
+                                            </p>
+                                        </div>
+                                        <div className="p-4 rounded-full bg-blue-500/10 text-blue-500">
+                                            <Calendar size={24} />
+                                        </div>
+                                    </motion.div>
+                                </div>
+
+                                {/* Quick Links */}
+                                <div className="mt-8">
+                                    <h4 className="text-sm font-bold uppercase tracking-wider opacity-60 mb-4 ml-2">{language === 'vi' ? 'Dịch Vụ' : 'Services'}</h4>
+                                    <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
+                                        {[
+                                            { icon: MessageCircle, label: language === 'vi' ? 'Tư Vấn' : 'Chat Dr.', color: 'text-purple-500', action: () => setCurrentTab('chat') },
+                                            { icon: FileText, label: language === 'vi' ? 'Hồ Sơ' : 'Records', color: 'text-emerald-500', action: () => setCurrentTab('records') },
+                                            { icon: MapPin, label: language === 'vi' ? 'Phòng Khám' : 'Clinics', color: 'text-red-500', action: () => {} },
+                                            { icon: Globe, label: language === 'vi' ? 'Tin Tức' : 'News', color: 'text-blue-500', action: () => {} },
+                                        ].map((item, idx) => (
+                                            <motion.button 
+                                                key={idx}
+                                                whileHover={{ y: -5, scale: 1.05 }}
+                                                onClick={item.action}
+                                                className={`min-w-[100px] p-4 rounded-2xl flex flex-col items-center justify-center gap-2 border shadow-sm transition-all duration-300 ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 hover:border-blue-200'}`}
+                                            >
+                                                <item.icon size={24} className={item.color} />
+                                                <span className="text-xs font-bold">{item.label}</span>
+                                            </motion.button>
+                                        ))}
                                     </div>
-                                )}
+                                </div>
                             </div>
                         </motion.div>
                     )}
@@ -288,12 +436,14 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                         <motion.div 
                             key="records"
                             initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+                            className="p-6"
                         >
                             <h2 className="text-2xl font-black mb-6">{t.patientDashboard.history}</h2>
                             {diagnosisHistory.length === 0 ? (
                                 <div className="text-center py-20 opacity-50">
                                     <FileText size={48} className="mx-auto mb-4"/>
-                                    <p>No diagnosis history yet.</p>
+                                    <p>{language === 'vi' ? 'Chưa có hồ sơ bệnh án.' : 'No diagnosis history yet.'}</p>
+                                    <p className="text-xs mt-2 text-slate-400">{language === 'vi' ? 'Hồ sơ sẽ xuất hiện khi Bác sĩ cập nhật.' : 'Records appear here when the Doctor updates them.'}</p>
                                 </div>
                             ) : (
                                 <div className="space-y-2">
@@ -303,61 +453,99 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                         </motion.div>
                     )}
 
-                    {/* VIEW: CHAT */}
+                    {/* VIEW: CHAT - MODIFIED FOR PATIENT EXCLUSIVE USE */}
                     {currentTab === 'chat' && (
                         <motion.div 
                             key="chat"
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                             className="h-full flex flex-col"
                         >
-                            <div className="flex-1 overflow-y-auto space-y-4 pb-4">
-                                {messages.length === 0 && (
+                            {/* Doctor Header */}
+                            <div className={`p-4 shadow-sm border-b z-10 flex items-center justify-between ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg">
+                                        <Stethoscope size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-bold">{userProfile?.hospital || (language === 'vi' ? 'Bác sĩ phụ trách' : 'Your Doctor')}</h3>
+                                        <div className="flex items-center">
+                                            <span className={`w-2 h-2 rounded-full mr-2 ${assignedDoctorId ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+                                            <span className="text-[10px] opacity-60 uppercase font-bold tracking-wider">{assignedDoctorId ? (language === 'vi' ? 'Trực tuyến' : 'Online') : (language === 'vi' ? 'Chưa liên kết' : 'Not Linked')}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Chat Area */}
+                            <div className="flex-1 overflow-y-auto space-y-4 p-4 custom-scrollbar bg-slate-50/50 dark:bg-black/50">
+                                {!assignedDoctorId ? (
+                                    <div className="flex flex-col items-center justify-center h-full opacity-60 text-center">
+                                        <AlertTriangle size={48} className="text-yellow-500 mb-4" />
+                                        <p className="font-bold">{language === 'vi' ? 'Chưa liên kết với Bác sĩ' : 'No Doctor Assigned'}</p>
+                                        <p className="text-xs mt-2 max-w-xs">{language === 'vi' ? 'Vui lòng vào phần "Cá Nhân" và nhập email bác sĩ để kết nối.' : 'Go to "Profile" and link your doctor via email to start chatting.'}</p>
+                                        <button onClick={() => setCurrentTab('profile')} className="mt-4 text-xs font-bold text-blue-500 underline">{language === 'vi' ? 'Đi tới Cài đặt' : 'Go to Settings'}</button>
+                                    </div>
+                                ) : messages.length === 0 ? (
                                     <div className="text-center py-10 opacity-50">
                                         <MessageCircle size={40} className="mx-auto mb-2" />
-                                        <p className="text-xs">Start chatting with your doctor.</p>
+                                        <p className="text-xs">{language === 'vi' ? 'Bắt đầu trò chuyện với bác sĩ.' : 'Start chatting with your doctor.'}</p>
                                     </div>
+                                ) : (
+                                    messages.map(msg => {
+                                        const isMe = msg.senderId === currentUser?.uid;
+                                        return (
+                                            <motion.div 
+                                                initial={{ opacity: 0, y: 10 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                key={msg.id} 
+                                                className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                                            >
+                                                <div className={`max-w-[75%] p-3.5 text-xs shadow-sm ${
+                                                    isMe 
+                                                    ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm' 
+                                                    : `${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl rounded-bl-sm`
+                                                }`}>
+                                                    {msg.text}
+                                                </div>
+                                            </motion.div>
+                                        )
+                                    })
                                 )}
-                                {messages.map(msg => {
-                                    const isMe = msg.senderId === currentUser?.uid;
-                                    return (
-                                        <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`max-w-[80%] p-3 rounded-2xl text-xs shadow-sm ${
-                                                isMe 
-                                                ? 'bg-blue-600 text-white rounded-br-none' 
-                                                : `${isDarkMode ? 'bg-slate-800' : 'bg-white'} border rounded-bl-none`
-                                            }`}>
-                                                {msg.text}
-                                            </div>
-                                        </div>
-                                    )
-                                })}
                                 <div ref={messagesEndRef} />
                             </div>
-                            <div className={`p-2 rounded-2xl flex items-center gap-2 ${isDarkMode ? 'bg-slate-900' : 'bg-white border'}`}>
-                                <input 
-                                    className="flex-1 bg-transparent p-3 text-sm outline-none"
-                                    placeholder="Type a message..."
-                                    value={inputMsg}
-                                    onChange={e => setInputMsg(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                                />
-                                <button onClick={handleSendMessage} className="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors">
-                                    <Send size={18} />
-                                </button>
-                            </div>
+
+                            {/* Input Area */}
+                            {assignedDoctorId && (
+                                <div className={`p-3 m-3 rounded-2xl flex items-center gap-2 border shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-white'}`}>
+                                    <input 
+                                        className={`flex-1 bg-transparent p-2 text-sm outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                                        placeholder={language === 'vi' ? "Nhập tin nhắn..." : "Type a message..."}
+                                        value={inputMsg}
+                                        onChange={e => setInputMsg(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                                    />
+                                    <button 
+                                        onClick={handleSendMessage} 
+                                        disabled={!inputMsg.trim()}
+                                        className="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                                    >
+                                        <Send size={16} />
+                                    </button>
+                                </div>
+                            )}
                         </motion.div>
                     )}
 
                     {/* VIEW: SCHEDULE */}
                     {currentTab === 'schedule' && (
-                        <motion.div key="schedule" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                        <motion.div key="schedule" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6">
                              <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-2xl font-black">{t.patientDashboard.appointments}</h2>
-                                <button onClick={() => setIsBookModalOpen(true)} className="p-2 bg-blue-600 text-white rounded-full shadow-lg"><Plus size={20}/></button>
+                                <button onClick={() => setIsBookModalOpen(true)} className="p-2 bg-blue-600 text-white rounded-full shadow-lg hover:scale-110 transition-transform"><Plus size={20}/></button>
                              </div>
                              <div className="space-y-3">
-                                {myAppointments.map(app => (
-                                    <div key={app.id} className={`p-5 rounded-2xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'} flex gap-4`}>
+                                {myAppointments.length > 0 ? myAppointments.map(app => (
+                                    <div key={app.id} className={`p-5 rounded-2xl border transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-blue-200'} flex gap-4`}>
                                         <div className="flex flex-col items-center justify-center px-4 border-r border-slate-200 dark:border-slate-800">
                                             <span className="text-xs font-bold uppercase text-slate-400">{new Date(app.date).toLocaleDateString('en-US', {month: 'short'})}</span>
                                             <span className="text-xl font-black">{new Date(app.date).getDate()}</span>
@@ -365,22 +553,36 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                         <div>
                                             <h4 className="font-bold text-sm mb-1">{app.title}</h4>
                                             <p className="text-xs text-slate-500 mb-2">Dr. Assigned • {app.startTime}:00</p>
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${app.status === 'Done' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>{app.status}</span>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                                app.status === 'Done' ? 'bg-green-100 text-green-600' : 
+                                                app.status === 'In Progress' ? 'bg-blue-100 text-blue-600' :
+                                                'bg-yellow-100 text-yellow-600'
+                                            }`}>
+                                                {app.status === 'Pending' ? (language === 'vi' ? 'Đang duyệt' : 'Pending') : app.status}
+                                            </span>
                                         </div>
                                     </div>
-                                ))}
+                                )) : (
+                                    <div className="text-center py-10 opacity-50 text-sm">
+                                        {language === 'vi' ? 'Không tìm thấy lịch hẹn.' : 'No appointments found.'}
+                                    </div>
+                                )}
                              </div>
                         </motion.div>
                     )}
 
                     {/* VIEW: PROFILE (Using SettingsView simplified) */}
                     {currentTab === 'profile' && (
-                        <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pb-20">
+                        <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pb-20 p-6">
                             <h2 className="text-2xl font-black mb-4">{t.patientDashboard.tabs.profile}</h2>
                             <SettingsView userProfile={userProfile} isDarkMode={isDarkMode} onProfileUpdate={() => {}} />
                             <div className="mt-6 px-4">
-                                <button onClick={onLogout} className="w-full py-4 bg-red-500/10 text-red-500 font-bold uppercase text-xs rounded-xl flex items-center justify-center">
-                                    <LogOut size={16} className="mr-2"/> {t.sidebar.logout}
+                                <button 
+                                    onClick={handleLogoutWrapper} 
+                                    disabled={isLoggingOut}
+                                    className="w-full py-4 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold uppercase text-xs rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
+                                >
+                                    {isLoggingOut ? <Loader2 size={16} className="animate-spin mr-2"/> : <LogOut size={16} className="mr-2"/>} {t.sidebar.logout}
                                 </button>
                             </div>
                         </motion.div>

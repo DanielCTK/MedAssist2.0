@@ -14,7 +14,7 @@ interface CartItem extends InventoryItem {
     quantity: number;
 }
 
-// Fallback data
+// Fallback data if SEED_DATA is missing or empty
 const FALLBACK_DATA: Omit<InventoryItem, 'id'>[] = [
     { name: 'Panadol Extra', category: 'General', price: '150k', img: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=300&q=80', stock: 120, badge: 'Pain Relief' },
     { name: 'Insulin Pen', category: 'Device', price: '450k', img: 'https://images.unsplash.com/photo-1631549916768-4119b2e5f926?auto=format&fit=crop&w=300&q=80', stock: 15, badge: 'Diabetes' },
@@ -25,8 +25,8 @@ const FALLBACK_DATA: Omit<InventoryItem, 'id'>[] = [
 const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => {
   const { t } = useLanguage();
   
-  // State
-  const initialData = (SEED_DATA && Array.isArray(SEED_DATA) ? SEED_DATA : FALLBACK_DATA).map((item, index) => ({ 
+  // Initialize with seed/fallback data immediately
+  const initialData = (SEED_DATA && Array.isArray(SEED_DATA) && SEED_DATA.length > 0 ? SEED_DATA : FALLBACK_DATA).map((item, index) => ({ 
       ...item, 
       id: `demo-${index}` 
   })) as InventoryItem[];
@@ -62,7 +62,10 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
             setLoading(false);
         },
         (err) => {
-            console.error("Inventory fetch error", err);
+            // Silently fail on permission denied (common if rules are strict) and keep demo data
+            if (err?.code !== 'permission-denied' && !err?.message?.includes('insufficient permissions')) {
+                console.error("Inventory fetch error", err);
+            }
             setLoading(false);
         }
     );
@@ -94,6 +97,10 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
 
   // Actions
   const handleSeedData = async () => {
+      if (isDemoMode) {
+          alert("Cannot seed database in demo mode (permissions restricted).");
+          return;
+      }
       setIsSeeding(true);
       await seedInventory();
       setIsSeeding(false);
@@ -113,8 +120,6 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
           if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
           return [...prev, { ...item, quantity: 1 }];
       });
-      // Optionally open cart when adding
-      // setIsCartOpen(true); 
   };
 
   const updateQuantity = (id: string, delta: number) => {
@@ -149,7 +154,7 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
       if (!isDemoMode) {
           cart.forEach(c => {
               const original = products.find(p => p.id === c.id);
-              if (original) updateStock(c.id, Math.max(0, original.stock - c.quantity));
+              if (original) updateStock(c.id, Math.max(0, original.stock - c.quantity)).catch(err => console.warn("Stock update failed", err));
           });
       }
       clearCart();
@@ -168,7 +173,7 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
           });
           setIsAddMode(false);
           setNewItem({ name: '', category: 'General', price: '', stock: 10, img: '', badge: 'New' });
-      } catch (err) { alert("Failed to add item"); } 
+      } catch (err) { alert("Failed to add item (Permission Denied)"); } 
       finally { setIsSavingItem(false); }
   };
 
@@ -243,12 +248,12 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
                             <div className="flex items-center gap-3">
                                 <AlertTriangle className="text-amber-500" />
                                 <div>
-                                    <h4 className="text-sm font-bold text-amber-500 uppercase">Demo Mode Active</h4>
-                                    <p className={`text-xs ${textSub}`}>Database is currently empty. Showing local preview data.</p>
+                                    <h4 className="text-sm font-bold text-amber-500 uppercase">Preview Mode</h4>
+                                    <p className={`text-xs ${textSub}`}>Using local demo data. Backend sync unavailable or restricted.</p>
                                 </div>
                             </div>
-                            <button onClick={handleSeedData} disabled={isSeeding} className="px-4 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold uppercase hover:bg-amber-600 transition-colors">
-                                {isSeeding ? <Loader2 className="animate-spin" /> : 'Initialize DB'}
+                            <button onClick={handleSeedData} disabled={true} className="px-4 py-2 bg-amber-500/50 text-white/50 cursor-not-allowed rounded-lg text-xs font-bold uppercase">
+                                Initialize DB
                             </button>
                         </div>
                     )}

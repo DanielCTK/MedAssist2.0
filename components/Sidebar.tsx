@@ -1,12 +1,12 @@
-import React from 'react';
-import { LayoutDashboard, Eye, Users, Settings, Activity, LogOut, Package, Pill } from 'lucide-react';
+import React, { useState } from 'react';
+import { LayoutDashboard, Eye, Users, Settings, Activity, LogOut, Package, Pill, Loader2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface SidebarProps {
   currentView: string;
   setView: (view: string) => void;
   isDarkMode: boolean;
-  onLogout: () => void;
+  onLogout: () => Promise<void>; // Changed to Promise
 }
 
 // 🇯🇵 SEIGAIHA PATTERN (Waves)
@@ -14,6 +14,7 @@ const SEIGAIHA_PATTERN = `data:image/svg+xml,%3Csvg width='100' height='20' view
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isDarkMode, onLogout }) => {
   const { t } = useLanguage();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const menuItems = [
     { id: 'dashboard', label: t.sidebar.dashboard, icon: LayoutDashboard },
@@ -22,6 +23,17 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isDarkMode, onL
     { id: 'inventory', label: t.sidebar.pharmacy, icon: Package }, // Added back
     { id: 'history', label: t.sidebar.insights, icon: Activity },
   ];
+
+  const handleLogoutWrapper = async () => {
+      setIsLoggingOut(true);
+      try {
+          await onLogout();
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setIsLoggingOut(false);
+      }
+  };
 
   // Compact width w-52 instead of w-64
   const baseClasses = isDarkMode 
@@ -95,10 +107,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isDarkMode, onL
         </button>
         
         <button 
-            onClick={onLogout}
-            className={`w-full flex items-center space-x-3 px-3 py-2 mt-1 rounded-lg transition-colors group ${isDarkMode ? 'text-slate-500 hover:text-white hover:bg-red-900/30' : 'text-slate-500 hover:bg-red-50 hover:text-red-600'}`}
+            onClick={handleLogoutWrapper}
+            disabled={isLoggingOut}
+            className={`w-full flex items-center space-x-3 px-3 py-2 mt-1 rounded-lg transition-colors group ${isDarkMode ? 'text-slate-500 hover:text-white hover:bg-red-900/30' : 'text-slate-500 hover:bg-red-50 hover:text-red-600'} disabled:opacity-50`}
         >
-          <LogOut size={16} className="group-hover:translate-x-1 transition-transform" />
+          {isLoggingOut ? <Loader2 size={16} className="animate-spin text-red-500" /> : <LogOut size={16} className="group-hover:translate-x-1 transition-transform" />}
           <span className="font-bold text-[10px] uppercase tracking-wider">{t.sidebar.logout}</span>
         </button>
       </div>

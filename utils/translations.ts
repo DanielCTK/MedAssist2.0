@@ -19,6 +19,8 @@ export const translations = {
         no_appointments: "No upcoming appointments",
         history: "Health Journey",
         book_new: "Request Appointment",
+        sync_data: "Sync Data",
+        sync_success: "Data synchronized with Doctor.",
         tabs: {
             home: "Home",
             records: "My Health",
@@ -202,6 +204,8 @@ export const translations = {
         no_appointments: "Không có lịch hẹn sắp tới",
         history: "Hành Trình Sức Khỏe",
         book_new: "Đặt Lịch Khám",
+        sync_data: "Dò tìm dữ liệu",
+        sync_success: "Đã đồng bộ dữ liệu với Bác sĩ.",
         tabs: {
             home: "Tổng Quan",
             records: "Hồ Sơ Y Tế",

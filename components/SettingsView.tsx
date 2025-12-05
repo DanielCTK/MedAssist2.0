@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile } from '../types';
 import { updateUserProfile, uploadUserImage } from '../services/userService';
-import { Save, Loader2, Camera, MapPin, Edit2, Upload, Trash2, LogOut, Check, Image as ImageIcon, Key, ShieldAlert, X } from 'lucide-react';
+import { linkPatientToDoctor } from '../services/patientService';
+import { Save, Loader2, Camera, MapPin, Edit2, Upload, Trash2, LogOut, Check, Image as ImageIcon, Key, ShieldAlert, X, Link as LinkIcon, Stethoscope } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { updatePassword, signOut } from "firebase/auth";
@@ -31,10 +32,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
     const [passError, setPassError] = useState("");
     const [passSuccess, setPassSuccess] = useState("");
 
+    // Linking State
+    const [doctorEmail, setDoctorEmail] = useState("");
+    const [isLinking, setIsLinking] = useState(false);
+
     const avatarInputRef = useRef<HTMLInputElement>(null);
     const bannerInputRef = useRef<HTMLInputElement>(null);
 
     const hoverEffect = "hover:shadow-2xl hover:border-blue-400 dark:hover:border-slate-600 transition-all duration-500";
+
+    const isPatient = userProfile?.role === 'patient';
 
     useEffect(() => {
         if (userProfile) {
@@ -96,6 +103,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         } finally {
             if (isAvatar) setIsUploadingAvatar(false);
             else setIsUploadingBanner(false);
+        }
+    };
+
+    // --- NEW FUNCTION: CONNECT TO DOCTOR ---
+    const handleConnectDoctor = async () => {
+        if (!doctorEmail || !formData) return;
+        setIsLinking(true);
+        try {
+            const doctor = await linkPatientToDoctor(formData, doctorEmail);
+            alert(`Successfully connected to Dr. ${doctor.displayName}!`);
+            setDoctorEmail("");
+            // Update local state to reflect change (e.g. if we stored doctor name locally)
+            if (formData) {
+                const updated = { ...formData, doctorUid: doctor.uid, hospital: doctor.hospital };
+                setFormData(updated);
+                onProfileUpdate(updated);
+            }
+        } catch (err: any) {
+            alert(err.message || "Failed to link. Check email.");
+        } finally {
+            setIsLinking(false);
         }
     };
 
@@ -377,7 +405,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                             
                             <div className="flex flex-col md:flex-row md:items-center text-sm font-medium opacity-80 gap-2 md:gap-4 mt-1">
                                 <span className={valueColor}>
-                                    {formData.specialty || "Medical Staff"} @ {formData.hospital || "General Hospital"}
+                                    {isPatient ? 'Patient Account' : `${formData.specialty || "Medical Staff"} @ ${formData.hospital || "General Hospital"}`}
                                 </span>
                                 <span className={`hidden md:inline ${labelColor}`}>•</span>
                                 <span className={`flex items-center ${labelColor}`}>
@@ -387,6 +415,45 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                             </div>
                         </div>
                     </div>
+
+                    {/* --- PATIENT ONLY: CONNECT TO DOCTOR --- */}
+                    {isPatient && (
+                        <div className={`mb-8 p-6 rounded-2xl border ${isDarkMode ? 'bg-indigo-900/10 border-indigo-500/30' : 'bg-indigo-50 border-indigo-200'}`}>
+                            <div className="flex items-start justify-between">
+                                <div>
+                                    <h3 className="font-bold text-indigo-500 flex items-center mb-2">
+                                        <Stethoscope size={18} className="mr-2"/> Your Doctor
+                                    </h3>
+                                    <p className={`text-xs ${labelColor} mb-4 max-w-lg`}>
+                                        Link your account to your primary doctor to enable chat, appointment booking, and real-time medical record updates.
+                                    </p>
+                                </div>
+                                {formData.doctorUid && (
+                                    <div className="px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-xs font-bold border border-green-500/20 flex items-center">
+                                        <Check size={12} className="mr-1"/> Linked
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <div className="flex gap-3 items-center">
+                                <input 
+                                    type="email" 
+                                    placeholder="Enter Doctor's Email..."
+                                    value={doctorEmail}
+                                    onChange={(e) => setDoctorEmail(e.target.value)}
+                                    className={`flex-1 p-3 rounded-xl border outline-none text-sm ${inputBg}`}
+                                />
+                                <button 
+                                    onClick={handleConnectDoctor}
+                                    disabled={isLinking || !doctorEmail}
+                                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs uppercase tracking-widest flex items-center disabled:opacity-50"
+                                >
+                                    {isLinking ? <Loader2 className="animate-spin" size={16}/> : <LinkIcon size={16} className="mr-2"/>}
+                                    {formData.doctorUid ? "Change Doctor" : "Connect"}
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {/* --- FIELDS LIST SECTION --- */}
                     <div className="mt-8">
@@ -402,26 +469,33 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                             value={formData.email} 
                             readOnly 
                         />
-                         <InfoRow 
-                            label="Role / Specialty" 
-                            fieldKey="specialty" 
-                            value={formData.specialty || ""} 
-                        />
-                        <InfoRow 
-                            label="Hospital" 
-                            fieldKey="hospital" 
-                            value={formData.hospital || ""} 
-                        />
+                        
+                        {!isPatient && (
+                            <>
+                                <InfoRow 
+                                    label="Role / Specialty" 
+                                    fieldKey="specialty" 
+                                    value={formData.specialty || ""} 
+                                />
+                                <InfoRow 
+                                    label="Hospital" 
+                                    fieldKey="hospital" 
+                                    value={formData.hospital || ""} 
+                                />
+                                 <InfoRow 
+                                    label="Bio" 
+                                    fieldKey="bio" 
+                                    value={formData.bio || ""} 
+                                />
+                            </>
+                        )}
+
                         <InfoRow 
                             label="Location" 
                             fieldKey="location" 
                             value={formData.location || ""} 
                         />
-                         <InfoRow 
-                            label="Bio" 
-                            fieldKey="bio" 
-                            value={formData.bio || ""} 
-                        />
+                        
                         <InfoRow 
                             label="Language" 
                             fieldKey="language" 
