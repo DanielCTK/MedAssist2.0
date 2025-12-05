@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Lock, Mail, ArrowRight, Loader2, ShieldCheck, Fingerprint, AlertCircle } from 'lucide-react';
+import { X, User, Lock, Mail, ArrowRight, Loader2, ShieldCheck, Fingerprint, AlertCircle, Stethoscope, UserCircle } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from "firebase/auth";
+import { getUserProfile } from '../services/userService';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [selectedRole, setSelectedRole] = useState<'doctor' | 'patient'>('patient'); // Default to patient
   const [error, setError] = useState<string | null>(null);
 
   const { t } = useLanguage();
@@ -66,16 +68,26 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
     setError(null);
 
     try {
+        let user;
         if (isLogin) {
-            await signInWithEmailAndPassword(auth, email, password);
+            const result = await signInWithEmailAndPassword(auth, email, password);
+            user = result.user;
         } else {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            if (fullName && userCredential.user) {
-                await updateProfile(userCredential.user, {
+            user = userCredential.user;
+            if (fullName && user) {
+                await updateProfile(user, {
                     displayName: fullName
                 });
             }
         }
+        
+        // Ensure profile exists or is created with the selected role (only matters for create, but handled for both)
+        // If login, getUserProfile will retrieve existing role. If register, it creates with selectedRole.
+        if (user) {
+            await getUserProfile(user, isLogin ? undefined : selectedRole);
+        }
+
         onLogin();
     } catch (err: any) {
         console.error(err);
@@ -92,18 +104,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
       try {
           const provider = new GoogleAuthProvider();
           provider.setCustomParameters({ prompt: 'select_account' });
-          await signInWithPopup(auth, provider);
+          const result = await signInWithPopup(auth, provider);
+          
+          // For Google Login, we default new users to Patient if they don't exist
+          // Or we could ask, but for flow simplicity, we'll assume patient unless invite logic existed
+          await getUserProfile(result.user, 'patient'); 
+          
           onLogin();
       } catch (err: any) {
           console.error("Google Auth Error:", err);
-          
-          if (err.code === 'auth/popup-closed-by-user') {
-              setError("Login cancelled.");
-          } else if (err.code === 'auth/popup-blocked') {
-              setError("Popup blocked. Please allow popups for this site.");
-          } else if (err.code === 'auth/unauthorized-domain') {
-              setError(`Domain "${window.location.hostname}" chưa được cấp quyền (Unauthorized Domain).`);
-          } else {
+          if (err.code !== 'auth/popup-closed-by-user') {
               setError(err.message || t.auth.errors.google_failed);
           }
       } finally {
@@ -217,6 +227,26 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
                         </motion.div>
                     )}
                 </AnimatePresence>
+
+                {/* Role Selection (Only on Register) */}
+                {!isLogin && (
+                    <div className="flex bg-slate-800 p-1 rounded-lg mb-6">
+                        <button 
+                            type="button"
+                            onClick={() => setSelectedRole('patient')}
+                            className={`flex-1 flex items-center justify-center py-2 rounded-md text-xs font-bold uppercase transition-all ${selectedRole === 'patient' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            <UserCircle size={16} className="mr-2" /> {t.auth.role_patient}
+                        </button>
+                        <button 
+                            type="button"
+                            onClick={() => setSelectedRole('doctor')}
+                            className={`flex-1 flex items-center justify-center py-2 rounded-md text-xs font-bold uppercase transition-all ${selectedRole === 'doctor' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            <Stethoscope size={16} className="mr-2" /> {t.auth.role_doctor}
+                        </button>
+                    </div>
+                )}
 
                 {/* GOOGLE LOGIN BUTTON */}
                 <button 

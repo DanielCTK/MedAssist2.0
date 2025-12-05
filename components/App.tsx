@@ -10,6 +10,7 @@ import LandingPage from './LandingPage';
 import SettingsView from './SettingsView';
 import AIChatbot from './AIChatbot';
 import InsightsView from './InsightsView'; 
+import PatientDashboard from './PatientDashboard'; // Import Patient Dashboard
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
@@ -30,9 +31,6 @@ const App: React.FC = () => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [currentView, setCurrentView] = useState('dashboard'); 
   const [isDarkMode, setIsDarkMode] = useState(false); 
-  
-  // Widget State
-  const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   
   // GLOBAL SEARCH STATE
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,7 +59,9 @@ const App: React.FC = () => {
              console.error("Failed to load user profile", e);
          }
       } else {
+         // Optimization: Handle reset logic here centrally instead of in handleLogout
          setUserProfile(null);
+         setCurrentView('dashboard');
       }
       setIsLoadingAuth(false);
     });
@@ -80,6 +80,12 @@ const App: React.FC = () => {
             unsubInventory(); 
             unsubChats();
         };
+    } else {
+        // Optimization: Immediately clear heavy data arrays on logout to free memory
+        setAllPatients([]);
+        setAllInventory([]);
+        setActiveChats([]);
+        setSearchResults([]);
     }
   }, [currentUser]);
 
@@ -105,7 +111,7 @@ const App: React.FC = () => {
       const results: typeof searchResults = [];
 
       // 1. Navigation Pages
-      ['dashboard', 'patients', 'diagnosis', 'history', 'settings'].forEach(page => {
+      ['dashboard', 'patients', 'diagnosis', 'history', 'settings', 'inventory'].forEach(page => {
           if (page.includes(q)) {
               results.push({
                   type: 'Page', id: page, title: `Go to ${page.charAt(0).toUpperCase() + page.slice(1)}`,
@@ -129,7 +135,7 @@ const App: React.FC = () => {
           if (i.name.toLowerCase().includes(q)) {
               results.push({
                   type: 'Item', id: i.id, title: i.name, subtitle: `${i.stock} in stock`,
-                  action: () => setIsInventoryOpen(true) // Open widget directly
+                  action: () => setCurrentView('inventory')
               });
           }
       });
@@ -159,20 +165,13 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     try {
+        // Optimization: Only call signOut. 
+        // Do NOT manually set state here (e.g. setUserProfile(null)). 
+        // Rely on onAuthStateChanged to handle state updates to avoid race conditions and UI freezing.
         await signOut(auth);
-        setCurrentView('dashboard');
-        setUserProfile(null);
     } catch (error) {
         console.error("Logout failed", error);
     }
-  };
-
-  const handleSetView = (view: string) => {
-      if (view === 'inventory') {
-          setIsInventoryOpen(true);
-      } else {
-          setCurrentView(view);
-      }
   };
 
   const pageVariants = {
@@ -196,6 +195,20 @@ const App: React.FC = () => {
     );
   }
 
+  // --- RENDER PATIENT VIEW IF ROLE IS PATIENT ---
+  if (currentUser && userProfile?.role === 'patient') {
+      return (
+          <PatientDashboard 
+              isDarkMode={isDarkMode} 
+              currentUser={currentUser} 
+              userProfile={userProfile} 
+              onLogout={handleLogout}
+              toggleTheme={() => setIsDarkMode(!isDarkMode)}
+          />
+      );
+  }
+
+  // --- RENDER MAIN DOCTOR APP ---
   return (
     <div className={`h-screen w-full font-sans overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <AnimatePresence mode="wait">
@@ -218,7 +231,7 @@ const App: React.FC = () => {
           >
             <Sidebar 
                 currentView={currentView} 
-                setView={handleSetView} 
+                setView={setCurrentView} 
                 isDarkMode={isDarkMode} 
                 onLogout={handleLogout}
             />
@@ -234,6 +247,7 @@ const App: React.FC = () => {
                         {currentView === 'diagnosis' && t.sidebar.diagnosis}
                         {currentView === 'history' && t.sidebar.insights}
                         {currentView === 'settings' && t.sidebar.settings}
+                        {currentView === 'inventory' && t.sidebar.pharmacy}
                     </h2>
                   </div>
 
@@ -380,7 +394,8 @@ const App: React.FC = () => {
                    </AnimatePresence>
                    
                    {/* Persistent Global Widgets */}
-                   <Inventory isDarkMode={isDarkMode} isOpen={isInventoryOpen} setIsOpen={setIsInventoryOpen} />
+                   {/* Inventory now handles both the Full Page View (when route matches) and the global Cart Button */}
+                   <Inventory isDarkMode={isDarkMode} isFullPageView={currentView === 'inventory'} />
                    <AIChatbot />
                </div>
             </main>

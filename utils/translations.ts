@@ -9,6 +9,17 @@ export const translations = {
       settings: "Settings",
       logout: "Logout"
     },
+    patientDashboard: {
+        welcome: "Welcome back,",
+        health_score: "Health Score",
+        latest_diagnosis: "Latest Diagnosis",
+        appointments: "Upcoming Appointments",
+        prescriptions: "My Prescriptions",
+        contact_doctor: "Contact Doctor",
+        no_appointments: "No upcoming appointments",
+        history: "Medical History",
+        book_new: "Book Appointment"
+    },
     dashboard: {
       greeting: "Good Morning",
       appointments_left: "You have {{count}} appointments remaining.",
@@ -18,7 +29,7 @@ export const translations = {
       },
       profile: {
         patients: "Patients",
-        surgery: "Surgery"
+        completion: "Completion"
       },
       agenda: {
         title: "Today's Agenda"
@@ -83,12 +94,20 @@ export const translations = {
       diagnosis_result: "Diagnosis",
       gemini_analysis: "Gemini Analysis",
       generating: "Generating...",
+      simulation_mode: "Simulation Scenarios",
       grade_labels: {
         0: "NO DR",
         1: "MILD NPDR",
         2: "MODERATE NPDR",
         3: "SEVERE NPDR",
         4: "PROLIFERATIVE DR"
+      },
+      advice: {
+        0: "Patient shows no signs of Diabetic Retinopathy. Advise maintaining a healthy lifestyle and annual check-ups.",
+        1: "Mild NPDR (Microaneurysms) detected. Strict control of blood sugar and blood pressure is required. Re-examine in 6-9 months.",
+        2: "Moderate NPDR detected with retinal hemorrhages. Close monitoring of risk factors needed. Re-examine in 3-6 months.",
+        3: "Severe NPDR detected. High risk of progression to proliferative stage. Urgent specialist consultation and potential fluorescein angiography needed. Re-examine in 2-3 months.",
+        4: "Proliferative DR (PDR) detected. Critical condition with neovascularization. Immediate laser photocoagulation or surgery required to prevent vision loss."
       }
     },
     patients: {
@@ -117,10 +136,12 @@ export const translations = {
       }
     },
     auth: {
-      login_title: "Sign In to Account",
-      create_title: "Create New Account",
-      login_desc: "Enter your credentials to access your workspace.",
-      create_desc: "Register your medical license ID to get started.",
+      login_title: "Sign In",
+      create_title: "Create Account",
+      login_desc: "Access your dashboard.",
+      create_desc: "Join MedAssist today.",
+      role_doctor: "I am a Doctor",
+      role_patient: "I am a Patient",
       google_btn: "Continue with Google",
       or_email: "Or continue with email",
       full_name: "Full Name",
@@ -133,9 +154,9 @@ export const translations = {
       has_account: "Already have an account?",
       register_now: "Register Now",
       forgot_pass: "Forgot your password?",
-      welcome_back: "Welcome back to the future.",
+      welcome_back: "Welcome back.",
       join_revolution: "Join the diagnostic revolution.",
-      hero_desc: "Access MedAssist's advanced Gemini 2.5 AI models for instant retinal screening and comprehensive reporting.",
+      hero_desc: "Access MedAssist's advanced AI models for instant screening and reporting.",
       errors: {
         invalid_credential: "Invalid email or password.",
         user_not_found: "No user found with this email.",
@@ -158,6 +179,17 @@ export const translations = {
       settings: "Cài đặt",
       logout: "Đăng xuất"
     },
+    patientDashboard: {
+        welcome: "Chào mừng trở lại,",
+        health_score: "Điểm Sức Khỏe",
+        latest_diagnosis: "Chẩn Đoán Mới Nhất",
+        appointments: "Lịch Hẹn Sắp Tới",
+        prescriptions: "Đơn Thuốc Của Tôi",
+        contact_doctor: "Liên Hệ Bác Sĩ",
+        no_appointments: "Không có lịch hẹn sắp tới",
+        history: "Lịch Sử Khám",
+        book_new: "Đặt Lịch Mới"
+    },
     dashboard: {
       greeting: "Chào buổi sáng",
       appointments_left: "Bạn còn {{count}} cuộc hẹn.",
@@ -167,7 +199,7 @@ export const translations = {
       },
       profile: {
         patients: "Bệnh nhân",
-        surgery: "Phẫu thuật"
+        completion: "Hoàn thành"
       },
       agenda: {
         title: "Lịch trình hôm nay"
@@ -232,12 +264,20 @@ export const translations = {
       diagnosis_result: "Kết quả chẩn đoán",
       gemini_analysis: "Phân tích Gemini",
       generating: "Đang tạo...",
+      simulation_mode: "Kịch Bản Mô Phỏng",
       grade_labels: {
         0: "KHÔNG BỊ DR",
         1: "NPDR NHẸ",
         2: "NPDR TRUNG BÌNH",
         3: "NPDR NẶNG",
         4: "DR TĂNG SINH"
+      },
+      advice: {
+        0: "Bệnh nhân không có dấu hiệu bệnh võng mạc tiểu đường. Khuyên bệnh nhân duy trì lối sống lành mạnh và kiểm tra định kỳ hàng năm.",
+        1: "Phát hiện NPDR nhẹ (Microaneurysms). Bệnh nhân cần kiểm soát chặt chẽ đường huyết và huyết áp. Tái khám sau 6-9 tháng.",
+        2: "Phát hiện NPDR trung bình. Có xuất huyết võng mạc. Cần theo dõi sát sao, kiểm soát các yếu tố nguy cơ. Tái khám sau 3-6 tháng.",
+        3: "Phát hiện NPDR nặng. Nguy cơ cao tiến triển sang tăng sinh. Cần hội chẩn chuyên sâu, xem xét chụp mạch huỳnh quang. Tái khám sau 2-3 tháng.",
+        4: "Phát hiện PDR (Tăng sinh). Tình trạng nguy cấp. Có tân mạch và nguy cơ xuất huyết dịch kính. Cần can thiệp laser hoặc phẫu thuật ngay lập tức."
       }
     },
     patients: {
@@ -267,9 +307,11 @@ export const translations = {
     },
     auth: {
       login_title: "Đăng nhập",
-      create_title: "Tạo tài khoản mới",
-      login_desc: "Nhập thông tin xác thực để truy cập không gian làm việc.",
-      create_desc: "Đăng ký mã giấy phép y tế của bạn để bắt đầu.",
+      create_title: "Tạo tài khoản",
+      login_desc: "Truy cập vào bảng điều khiển.",
+      create_desc: "Tham gia MedAssist ngay hôm nay.",
+      role_doctor: "Tôi là Bác Sĩ",
+      role_patient: "Tôi là Bệnh Nhân",
       google_btn: "Tiếp tục với Google",
       or_email: "Hoặc tiếp tục với email",
       full_name: "Họ và tên",
@@ -282,9 +324,9 @@ export const translations = {
       has_account: "Đã có tài khoản?",
       register_now: "Đăng ký ngay",
       forgot_pass: "Quên mật khẩu?",
-      welcome_back: "Chào mừng trở lại tương lai.",
+      welcome_back: "Chào mừng trở lại.",
       join_revolution: "Tham gia cuộc cách mạng chẩn đoán.",
-      hero_desc: "Truy cập các mô hình AI Gemini 2.5 tiên tiến của MedAssist để sàng lọc võng mạc tức thì và báo cáo toàn diện.",
+      hero_desc: "Truy cập các mô hình AI tiên tiến của MedAssist để sàng lọc và báo cáo tức thì.",
       errors: {
         invalid_credential: "Email hoặc mật khẩu không đúng.",
         user_not_found: "Không tìm thấy người dùng với email này.",

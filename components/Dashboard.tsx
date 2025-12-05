@@ -233,7 +233,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       type: 'Diagnosis',
       startTime: 9,
       duration: 1,
-      status: 'Pending'
+      status: 'Pending',
+      date: ''
   });
 
   const [activeModal, setActiveModal] = useState<'none' | 'chat_patient' | 'chat_doctor' | 'mini_report' | 'emergency'>('none');
@@ -326,6 +327,12 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   
   const openAddModal = (typeOverride?: string) => {
       setEditingApptId(null);
+      // Default to selected date from calendar view
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+
       setNewAppt({ 
           patientId: '',
           patientName: '', 
@@ -333,7 +340,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
           type: (typeOverride as any) || 'Diagnosis', 
           startTime: 9, 
           duration: 1, 
-          status: 'Pending' 
+          status: 'Pending',
+          date: dateStr // Initialize with currently selected date
       });
       setIsApptModalOpen(true);
   };
@@ -356,10 +364,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
 
   const handleSaveAppointment = async (e: React.FormEvent) => {
       e.preventDefault();
-      const year = selectedDate.getFullYear();
-      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-      const day = String(selectedDate.getDate()).padStart(2, '0');
-      const dateStr = `${year}-${month}-${day}`;
       try {
           const apptData = {
               patientId: newAppt.patientId || undefined,
@@ -369,7 +373,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
               startTime: Number(newAppt.startTime),
               duration: Number(newAppt.duration),
               status: newAppt.status || 'Pending',
-              date: dateStr, 
+              date: newAppt.date || new Date().toISOString().split('T')[0], // Use the date from the form
               notes: newAppt.notes || ''
           };
           if (editingApptId) {
@@ -464,6 +468,13 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
           else if (action === 'emergency') setActiveModal('emergency');
       };
 
+      // Calculate Daily Completion Rate
+      const completionRate = useMemo(() => {
+          if (appointments.length === 0) return 0;
+          const done = appointments.filter(a => a.status === 'Done').length;
+          return Math.round((done / appointments.length) * 100);
+      }, [appointments]);
+
       return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-3">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -485,8 +496,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                 <p className={`text-sm font-black ${themeColor}`}>{patients.length > 0 ? patients.length : <Loader2 size={12} className="animate-spin inline"/>}</p>
                             </div>
                             <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                                <p className={`text-[8px] font-bold uppercase ${textMuted}`}>{t.dashboard.profile.surgery}</p>
-                                <p className="text-sm font-black text-green-500">98%</p>
+                                <p className={`text-[8px] font-bold uppercase ${textMuted}`}>{t.dashboard.profile.completion}</p>
+                                <p className="text-sm font-black text-green-500">{completionRate}%</p>
                             </div>
                         </div>
                     </motion.div>
@@ -692,6 +703,16 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                     <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className={`relative w-full max-w-sm p-6 rounded-2xl border shadow-2xl ${cardClass} max-h-[90vh] overflow-y-auto`}>
                         <div className="flex justify-between items-center mb-6"><h2 className="text-lg font-black uppercase flex items-center">{editingApptId ? (<><Edit2 size={18} className={`mr-2 ${themeColor}`} /> {t.dashboard.schedule.modal.edit}</>) : (<><Plus size={18} className={`mr-2 ${themeColor}`} /> {t.dashboard.schedule.modal.add}</>)}</h2><button onClick={() => setIsApptModalOpen(false)}><X size={18} /></button></div>
                         <form onSubmit={handleSaveAppointment} className="space-y-3">
+                            <div className="mb-2">
+                                <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Date</label>
+                                <input 
+                                    type="date" 
+                                    required 
+                                    value={newAppt.date} 
+                                    onChange={e => setNewAppt({...newAppt, date: e.target.value})} 
+                                    className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} 
+                                />
+                            </div>
                             <div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.patient_name}</label><select value={newAppt.patientId || ''} onChange={handlePatientSelect} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}><option value="">-- Manual Entry / Walk-in --</option>{patients.map(p => (<option key={p.id} value={p.id}>{p.name} (ID: {p.id.substring(0,4)}...)</option>))}</select><input type="text" required value={newAppt.patientName} onChange={e => setNewAppt({...newAppt, patientName: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-2 ${inputClass} ${newAppt.patientId ? 'opacity-70 cursor-not-allowed' : ''}`} placeholder="Or type name..." readOnly={!!newAppt.patientId} /></div>
                             <div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.activity}</label><input type="text" required value={newAppt.title} onChange={e => setNewAppt({...newAppt, title: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} placeholder="e.g. Scan" /></div>
                             <div className="grid grid-cols-2 gap-3"><div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.start_time}</label><select value={newAppt.startTime} onChange={e => setNewAppt({...newAppt, startTime: Number(e.target.value)})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}>{TIME_SLOTS.map(t => <option key={t} value={t}>{t}:00</option>)}</select></div><div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.duration}</label><input type="number" step="0.5" value={newAppt.duration} onChange={e => setNewAppt({...newAppt, duration: Number(e.target.value)})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} /></div></div>

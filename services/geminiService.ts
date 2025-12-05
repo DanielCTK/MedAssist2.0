@@ -2,7 +2,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, DRGrade, Patient, ReportData } from "../types";
 
 // NOTE: In a real production app, API calls should be routed through a backend to hide the key.
-// Since this is a client-side demo tool connecting to a local model, we use env var directly.
 const getClient = () => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
@@ -24,7 +23,8 @@ const getGradeName = (grade: DRGrade): string => {
 
 export const generateClinicalReport = async (
   patient: Patient,
-  analysis: AnalysisResult
+  analysis: AnalysisResult,
+  language: 'en' | 'vi' = 'en'
 ): Promise<ReportData> => {
   const ai = getClient();
   
@@ -40,8 +40,8 @@ export const generateClinicalReport = async (
     - Model Confidence: ${(analysis.confidence * 100).toFixed(1)}%
     
     Task:
-    Generate a JSON object with two fields:
-    1. "clinicalNotes": A professional, concise paragraph for a doctor's medical record, summarizing the automated finding and suggesting standard next steps (e.g., follow-up duration, OCT scan needed) based on the severity.
+    Generate a JSON object with two fields in ${language === 'vi' ? 'VIETNAMESE' : 'ENGLISH'} language.
+    1. "clinicalNotes": A professional, concise paragraph for a doctor's medical record, summarizing the automated finding and suggesting standard next steps based on the severity.
     2. "patientLetter": A gentle, easy-to-understand paragraph addressed to the patient explaining the result and what they should do next. Avoid overly alarming language but be clear about urgency if severe.
   `;
 
@@ -59,7 +59,7 @@ export const generateClinicalReport = async (
           },
           required: ["clinicalNotes", "patientLetter"]
         },
-        systemInstruction: "You are an expert ophthalmologist assistant."
+        systemInstruction: `You are an expert ophthalmologist assistant fluent in ${language === 'vi' ? 'Vietnamese' : 'English'}.`
       }
     });
 
@@ -71,8 +71,8 @@ export const generateClinicalReport = async (
   } catch (error) {
     console.error("Gemini Report Generation Error:", error);
     return {
-      clinicalNotes: "Error generating report. Please refer to manual diagnosis.",
-      patientLetter: "Error generating letter."
+      clinicalNotes: language === 'vi' ? "Lỗi khi tạo báo cáo. Vui lòng tham khảo chẩn đoán thủ công." : "Error generating report. Please refer to manual diagnosis.",
+      patientLetter: language === 'vi' ? "Lỗi khi tạo thư." : "Error generating letter."
     };
   }
 };

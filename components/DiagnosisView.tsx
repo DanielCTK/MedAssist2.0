@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User } from 'lucide-react';
+import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical } from 'lucide-react';
 import { analyzeImageWithLocalModel } from '../services/localAnalysisService';
 import { generateClinicalReport } from '../services/geminiService';
 import { AnalysisResult, DRGrade, Patient, ReportData, DiagnosisRecord } from '../types';
@@ -21,6 +21,15 @@ const GRADE_COLORS = {
   [DRGrade.Proliferative]: '#b91c1c', // Dark Red
 };
 
+// Simulation Images
+const SIMULATION_IMAGES = {
+    0: "https://images.unsplash.com/photo-1579154204601-01588f351e67?auto=format&fit=crop&q=80&w=1000", // Healthy looking
+    1: "https://www.optometryadvisor.com/wp-content/uploads/sites/15/2019/02/diabetic-retinopathy_1447230_G_611520624.jpg", // Mild
+    2: "https://upload.wikimedia.org/wikipedia/commons/b/b3/Diabetic_retinopathy.jpg", // Moderate
+    3: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Fundus_photograph_of_severe_non-proliferative_diabetic_retinopathy.jpg/1200px-Fundus_photograph_of_severe_non-proliferative_diabetic_retinopathy.jpg", // Severe
+    4: "https://upload.wikimedia.org/wikipedia/commons/2/23/Proliferative_diabetic_retinopathy.jpg" // Proliferative
+};
+
 const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
@@ -34,7 +43,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   const [isSaving, setIsSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const currentUser = auth.currentUser;
 
   // Load patients for the dropdown
@@ -63,31 +72,42 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
     }
   };
 
-  const handleAnalyze = async () => {
+  const runAnalysis = async (gradeOverride?: DRGrade) => {
+      setIsAnalyzing(true);
+      try {
+          // 1. Local AI Analysis (with optional simulation grade)
+          const result = await analyzeImageWithLocalModel(imageFile, gradeOverride);
+          setAnalysisResult(result);
+          
+          // 2. Generate Report via Gemini
+          const mockPatient = patients.find(p => p.id === selectedPatientId) || {
+              id: 'temp', name: 'Unknown Patient', age: 0, gender: 'Other', history: 'None', lastExam: ''
+          } as Patient;
+
+          setIsReportGenerating(true);
+          // Pass current language to Gemini Service
+          const report = await generateClinicalReport(mockPatient, result, language);
+          setReportData(report);
+          setIsReportGenerating(false);
+
+      } catch (error) {
+          console.error("Analysis failed", error);
+          alert("Analysis failed. Please try again.");
+      } finally {
+          setIsAnalyzing(false);
+      }
+  };
+
+  const handleAnalyze = () => {
     if (!imageFile) return;
+    runAnalysis();
+  };
 
-    setIsAnalyzing(true);
-    try {
-      // 1. Local AI Analysis
-      const result = await analyzeImageWithLocalModel(imageFile);
-      setAnalysisResult(result);
-      
-      // 2. Generate Report via Gemini (Only if patient is selected, or generic)
-      const mockPatient = patients.find(p => p.id === selectedPatientId) || {
-          id: 'temp', name: 'Unknown Patient', age: 0, gender: 'Other', history: 'None', lastExam: ''
-      } as Patient;
-
-      setIsReportGenerating(true);
-      const report = await generateClinicalReport(mockPatient, result);
-      setReportData(report);
-      setIsReportGenerating(false);
-
-    } catch (error) {
-      console.error("Analysis failed", error);
-      alert("Analysis failed. Please try again.");
-    } finally {
-      setIsAnalyzing(false);
-    }
+  const handleSimulation = (grade: DRGrade) => {
+      // Set dummy image for visual effect
+      setImagePreview(SIMULATION_IMAGES[grade]);
+      setImageFile(null); // Clear actual file
+      runAnalysis(grade);
   };
 
   const handleSaveToRecord = async () => {
@@ -104,7 +124,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
               grade: analysisResult.grade,
               confidence: analysisResult.confidence,
               note: reportData.clinicalNotes,
-              imageUrl: imagePreview || undefined // In real app, upload to storage first
+              imageUrl: imagePreview || undefined 
           };
 
           await addPatientDiagnosis(selectedPatientId, newRecord);
@@ -128,8 +148,6 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   const triggerFileInput = () => {
     fileInputRef.current?.click();
   };
-
-  const selectedPatient = patients.find(p => p.id === selectedPatientId);
 
   return (
     <div className="h-full flex flex-col md:flex-row gap-6 pb-6">
@@ -163,6 +181,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
               </div>
           </div>
           
+          {/* Main Image Area */}
           <div 
             className={`flex-1 rounded-xl border-2 border-dashed relative overflow-hidden transition-all group ${
                 imagePreview 
@@ -206,7 +225,8 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
             />
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 space-y-4">
+              {/* Primary Analyze Button */}
               <button 
                 onClick={handleAnalyze}
                 disabled={!imageFile || isAnalyzing}
@@ -224,6 +244,32 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
                       <><Microscope size={16} className="mr-2" /> {t.diagnosis.analyze_btn}</>
                   )}
               </button>
+
+              {/* Simulation Scenarios */}
+              <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-100'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-60 flex items-center">
+                          <FlaskConical size={10} className="mr-1"/> {t.diagnosis.simulation_mode}
+                      </span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-2">
+                      {[0,1,2,3,4].map((grade) => (
+                          <button
+                            key={grade}
+                            onClick={() => handleSimulation(grade as DRGrade)}
+                            disabled={isAnalyzing}
+                            className={`py-2 rounded-lg text-xs font-bold border transition-colors hover:scale-105 ${
+                                isDarkMode 
+                                ? 'bg-slate-900 border-slate-700 hover:bg-slate-800' 
+                                : 'bg-white border-slate-200 hover:bg-slate-100'
+                            }`}
+                            style={{ color: GRADE_COLORS[grade as DRGrade] }}
+                          >
+                              {grade}
+                          </button>
+                      ))}
+                  </div>
+              </div>
           </div>
         </div>
       </motion.div>
@@ -263,10 +309,17 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
                       <div className="h-2 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                           <motion.div 
                             initial={{ width: 0 }}
-                            animate={{ width: `${(analysisResult.grade / 4) * 100}%` }}
+                            animate={{ width: `${(analysisResult.grade === 0 ? 10 : (analysisResult.grade / 4) * 100)}%` }} // Use 10% min visual for grade 0
                             className="h-full rounded-full"
                             style={{ backgroundColor: GRADE_COLORS[analysisResult.grade] }}
                           />
+                      </div>
+                      
+                      {/* Doctor's Advice Box (Hardcoded in Translation based on grade) */}
+                      <div className={`mt-4 p-3 rounded-lg border ${isDarkMode ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-100'}`}>
+                          <p className="text-xs font-medium opacity-90 leading-relaxed">
+                              {t.diagnosis.advice[analysisResult.grade]}
+                          </p>
                       </div>
                   </div>
 
@@ -276,7 +329,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
                            <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-black italic text-xs mr-3">
                                AI
                            </div>
-                           <h3 className="font-bold text-sm uppercase tracking-wide">{t.diagnosis.gemini_analysis}</h3>
+                           <h3 className="font-bold text-sm uppercase tracking-wide">{t.diagnosis.gemini_analysis} ({language === 'vi' ? 'VN' : 'EN'})</h3>
                        </div>
                        
                        {isReportGenerating ? (
@@ -288,7 +341,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
                            <div className="space-y-6">
                                <div>
                                    <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Clinical Findings</p>
-                                   <p className="text-sm leading-relaxed opacity-90">{reportData.clinicalNotes}</p>
+                                   <p className="text-sm leading-relaxed opacity-90 whitespace-pre-wrap">{reportData.clinicalNotes}</p>
                                </div>
                                <div>
                                    <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Patient Communication</p>

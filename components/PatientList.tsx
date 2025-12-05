@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera } from 'lucide-react';
-import { Patient, DRGrade } from '../types';
+import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera, Phone, Mail, ExternalLink, MessageCircle, MapPin, AlertTriangle, Syringe, Eye } from 'lucide-react';
+import { Patient, DRGrade, DiagnosisRecord } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { subscribeToPatients, addPatient, updatePatient, deletePatient } from '../services/patientService';
@@ -30,7 +30,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   // Add Patient Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newPatient, setNewPatient] = useState<Partial<Patient>>({
-    name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', status: 'Active'
+    name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', address: '', status: 'Active'
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -67,6 +67,65 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
     );
   }, [patients, searchTerm]);
 
+  // --- LOGIC: Calculate Next Treatment Date based on Severity ---
+  const treatmentInfo = useMemo(() => {
+      if (!activePatient) return { date: new Date(), days: [] };
+
+      let nextDate = new Date();
+      // Logic: If there is history, base it on the last grade
+      if (activePatient.diagnosisHistory && activePatient.diagnosisHistory.length > 0) {
+          const lastRecord = activePatient.diagnosisHistory[activePatient.diagnosisHistory.length - 1];
+          const lastExamDate = new Date(lastRecord.date);
+          
+          // Add time based on severity
+          // Grade 0 (Healthy) -> 1 Year
+          // Grade 1-2 (Mild/Mod) -> 6 Months
+          // Grade 3 (Severe) -> 3 Months
+          // Grade 4 (Proliferative) -> 1 Month
+          const daysToAdd = lastRecord.grade === 0 ? 365 : lastRecord.grade <= 2 ? 180 : lastRecord.grade === 3 ? 90 : 30;
+          
+          nextDate = new Date(lastExamDate);
+          nextDate.setDate(lastExamDate.getDate() + daysToAdd);
+      } else {
+          // If no history, suggest next week
+          nextDate.setDate(nextDate.getDate() + 7);
+      }
+
+      // Generate 7-day strip centered on nextDate
+      const days = [];
+      for (let i = -3; i <= 3; i++) {
+          const d = new Date(nextDate);
+          d.setDate(nextDate.getDate() + i);
+          days.push(d);
+      }
+
+      return { date: nextDate, days };
+  }, [activePatient]);
+
+  // --- LOGIC: Chart Data from Real History ---
+  const chartData = useMemo(() => {
+      if (!activePatient || !activePatient.diagnosisHistory || activePatient.diagnosisHistory.length === 0) return [];
+      
+      // Sort by date ascending
+      const history = [...activePatient.diagnosisHistory].sort((a,b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+
+      return history.map(rec => ({
+          date: new Date(rec.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          fullDate: new Date(rec.date).toLocaleDateString(),
+          grade: rec.grade, // 0-4
+          confidence: (rec.confidence * 100).toFixed(0),
+          note: rec.grade === 0 ? "Healthy" : rec.grade === 1 ? "Mild" : rec.grade === 2 ? "Moderate" : rec.grade === 3 ? "Severe" : "PDR"
+      }));
+  }, [activePatient]);
+
+  const latestAdvice = useMemo(() => {
+      if (!activePatient?.diagnosisHistory?.length) return "No diagnosis history available. Please perform a scan.";
+      const last = activePatient.diagnosisHistory[activePatient.diagnosisHistory.length - 1];
+      return last.note || "No specific advice notes recorded for this visit.";
+  }, [activePatient]);
+
   const handleSavePatient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPatient.name || !newPatient.age || !currentUser) return;
@@ -79,11 +138,12 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
             history: newPatient.history || 'None',
             phone: newPatient.phone || '',
             email: newPatient.email || '',
+            address: newPatient.address || '',
             status: newPatient.status as any || 'Active',
             lastExam: new Date().toISOString().split('T')[0]
         });
         setIsAddModalOpen(false);
-        setNewPatient({ name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', status: 'Active' });
+        setNewPatient({ name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', address: '', status: 'Active' });
     } catch (err: any) {
         alert("Error: " + err.message);
     } finally {
@@ -134,20 +194,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
           reader.readAsDataURL(file);
       }
   };
-
-  const chartData = useMemo(() => {
-      if (!activePatient || !activePatient.diagnosisHistory) return [];
-      
-      const history = [...activePatient.diagnosisHistory].sort((a,b) => 
-          new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
-
-      return history.map(rec => ({
-          date: new Date(rec.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-          grade: rec.grade,
-          confidence: (rec.confidence * 100).toFixed(0)
-      }));
-  }, [activePatient]);
 
   const cardBorder = isDarkMode ? "border-slate-800" : "border-slate-100";
   const subText = isDarkMode ? "text-slate-400" : "text-slate-500";
@@ -209,7 +255,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                     type="text" 
                                     value={editForm.name || ''} 
                                     onChange={(e) => setEditForm({...editForm, name: e.target.value})}
-                                    className={`w-full text-center font-black text-xl p-1 rounded border ${inputClass}`}
+                                    className={`w-full text-center font-black text-xl p-2 rounded border ${inputClass}`}
                                     placeholder="Patient Name"
                                   />
                                   <div className="flex justify-center gap-2">
@@ -217,24 +263,85 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                         type="number" 
                                         value={editForm.age || ''}
                                         onChange={(e) => setEditForm({...editForm, age: Number(e.target.value)})}
-                                        className={`w-20 text-center text-sm p-1 rounded border ${inputClass}`}
+                                        className={`w-20 text-center text-sm p-2 rounded border ${inputClass}`}
                                         placeholder="Age"
                                       />
                                       <select
                                         value={editForm.gender || 'Male'}
                                         onChange={(e) => setEditForm({...editForm, gender: e.target.value as any})}
-                                        className={`w-24 text-center text-sm p-1 rounded border ${inputClass}`}
+                                        className={`w-24 text-center text-sm p-2 rounded border ${inputClass}`}
                                       >
                                           <option value="Male">Male</option>
                                           <option value="Female">Female</option>
                                           <option value="Other">Other</option>
                                       </select>
                                   </div>
+                                  
+                                  {/* Edit Phone, Email & Address */}
+                                  <div className="pt-2 space-y-2">
+                                      <div className="relative">
+                                          <Phone size={14} className="absolute left-3 top-3 text-slate-400"/>
+                                          <input 
+                                            type="text"
+                                            value={editForm.phone || ''}
+                                            onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                                            className={`w-full pl-9 p-2 rounded text-xs border ${inputClass}`}
+                                            placeholder="Phone Number"
+                                          />
+                                      </div>
+                                      <div className="relative">
+                                          <Mail size={14} className="absolute left-3 top-3 text-slate-400"/>
+                                          <input 
+                                            type="email"
+                                            value={editForm.email || ''}
+                                            onChange={(e) => setEditForm({...editForm, email: e.target.value})}
+                                            className={`w-full pl-9 p-2 rounded text-xs border ${inputClass}`}
+                                            placeholder="Email Address"
+                                          />
+                                      </div>
+                                      <div className="relative">
+                                          <MapPin size={14} className="absolute left-3 top-3 text-slate-400"/>
+                                          <input 
+                                            type="text"
+                                            value={editForm.address || ''}
+                                            onChange={(e) => setEditForm({...editForm, address: e.target.value})}
+                                            className={`w-full pl-9 p-2 rounded text-xs border ${inputClass}`}
+                                            placeholder="Home Address"
+                                          />
+                                      </div>
+                                  </div>
                               </div>
                           ) : (
                               <>
                                 <h2 className="text-2xl font-black">{activePatient.name}</h2>
-                                <p className={`text-sm ${subText} font-medium mb-6`}>{activePatient.age} years, {activePatient.gender}</p>
+                                <p className={`text-sm ${subText} font-medium mb-1`}>{activePatient.age} years, {activePatient.gender}</p>
+                                <div className="flex flex-wrap gap-2 mt-3 justify-center">
+                                    {activePatient.phone ? (
+                                        <a 
+                                            href={`https://zalo.me/${activePatient.phone.replace(/[^\d]/g, '')}`} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="flex items-center px-4 py-1.5 rounded-full bg-[#0068FF] text-white hover:bg-[#0054cc] transition-all shadow-md shadow-blue-500/20 group"
+                                            title="Click to open Zalo Chat"
+                                        >
+                                            <MessageCircle size={14} className="mr-2" fill="currentColor" /> 
+                                            <span className="text-xs font-bold mr-1">Zalo</span>
+                                            <span className="text-[10px] opacity-80 border-l border-white/30 pl-2 ml-2 font-mono tracking-wider">{activePatient.phone}</span>
+                                            <ExternalLink size={10} className="ml-2 opacity-60 group-hover:opacity-100" />
+                                        </a>
+                                    ) : (
+                                        <div className={`flex items-center text-xs font-bold px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 ${subText}`}>
+                                            <Phone size={12} className="mr-1.5"/> N/A
+                                        </div>
+                                    )}
+                                    <div className={`flex items-center text-xs font-bold px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 ${subText}`}>
+                                        <Mail size={12} className="mr-1.5"/> {activePatient.email || "N/A"}
+                                    </div>
+                                </div>
+                                <div className={`flex items-center justify-center text-xs font-bold text-slate-500 mb-6 mt-2 max-w-[80%] mx-auto text-center leading-tight`}>
+                                    <MapPin size={12} className="mr-1 shrink-0" />
+                                    <span>{activePatient.address || "No address provided"}</span>
+                                </div>
                               </>
                           )}
 
@@ -315,17 +422,18 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
 
                   <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
                       <div className="flex justify-between items-center mb-4">
-                          <h3 className="font-bold text-sm">Notifications</h3>
+                          <h3 className="font-bold text-sm">Next Notification</h3>
                           <span className="text-[10px] text-slate-400">{new Date().toLocaleDateString()}</span>
                       </div>
                       <div className={`p-4 rounded-xl border-l-4 border-green-500 ${cardBg}`}>
                            <div className="flex justify-between items-start mb-1">
                                <span className="font-bold text-sm">Follow-up Check</span>
-                               <span className="text-[10px] font-bold bg-green-500 text-white px-1.5 py-0.5 rounded">10mg</span>
+                               {/* Placeholder for dynamic med info if we added a med field later */}
+                               <span className="text-[10px] font-bold bg-green-500 text-white px-1.5 py-0.5 rounded">Rx</span>
                            </div>
-                           <p className="text-xs text-slate-500 mb-2">Scheduled for next week</p>
-                           <div className="flex gap-2 text-[9px] font-bold uppercase text-slate-400">
-                               <span>Mon</span> <span className="text-green-500">Wed</span> <span>Fri</span>
+                           <p className="text-xs text-slate-500 mb-2">Based on last diagnosis</p>
+                           <div className="flex gap-2 text-[10px] font-bold uppercase text-slate-400 items-center">
+                               <span>Expected:</span> <span className="text-green-500 text-xs">{treatmentInfo.date.toLocaleDateString()}</span>
                            </div>
                       </div>
                   </div>
@@ -335,14 +443,14 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                   
                   <div>
                       <div className="flex justify-between items-center mb-4">
-                          <h3 className={`text-xl font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>Examinations</h3>
+                          <h3 className={`text-xl font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>Diagnosis History</h3>
                           <button className={`flex items-center text-xs font-bold uppercase ${isDarkMode ? 'bg-teal-400/10 text-teal-400' : 'bg-teal-50 text-teal-600'} px-3 py-1.5 rounded-full`}>
                               See All
                           </button>
                       </div>
                       <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
                           {activePatient.diagnosisHistory && activePatient.diagnosisHistory.length > 0 ? (
-                              activePatient.diagnosisHistory.map((exam, idx) => (
+                              [...activePatient.diagnosisHistory].reverse().map((exam, idx) => (
                                   <div key={idx} className={`min-w-[200px] p-4 rounded-xl border-l-4 shadow-sm flex-shrink-0 ${isDarkMode ? 'bg-slate-900 border-teal-500' : 'bg-white border-teal-500'}`}>
                                       <span className="text-[10px] font-bold text-slate-400 mb-1 block">{new Date(exam.date).toLocaleDateString()}</span>
                                       <h4 className="font-bold text-sm mb-1 truncate">{
@@ -369,7 +477,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
 
                   <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
                       <div className="flex justify-between items-center mb-6">
-                          <h3 className={`text-xl font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>Health Curve</h3>
+                          <h3 className={`text-xl font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>Health Curve (DR Grade)</h3>
                           <div className="flex gap-2">
                               {['D', 'W', 'M', 'Y'].map(t => (
                                   <button key={t} className={`w-8 h-8 rounded-lg text-xs font-bold ${t === 'Y' ? 'bg-teal-600 text-white shadow-lg shadow-teal-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
@@ -390,10 +498,12 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} />
                                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} />
-                                    <YAxis hide />
+                                    <YAxis tickCount={5} domain={[0, 4]} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
                                     <Tooltip 
                                         contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
                                         itemStyle={{ color: isDarkMode ? '#fff' : '#000', fontSize: '12px', fontWeight: 'bold' }}
+                                        formatter={(value: any, name: any, props: any) => [`Grade ${value} - ${props.payload.note}`, 'Diagnosis']}
+                                        labelFormatter={(label, payload) => payload[0]?.payload?.fullDate || label}
                                     />
                                     <Area type="monotone" dataKey="grade" stroke="#14b8a6" strokeWidth={3} fillOpacity={1} fill="url(#colorGrade)" />
                                 </AreaChart>
@@ -410,31 +520,38 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                       <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
                           <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-4`}>Nearest Treatment</h3>
                           <div className="flex justify-between items-center mb-4">
-                              <span className="font-bold text-sm">August 2024</span>
+                              <span className="font-bold text-sm uppercase">{treatmentInfo.date.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
                               <ArrowUpRight size={16} />
                           </div>
                           <div className="flex justify-between text-center">
-                              {[26, 27, 28, 29, 30, 31, 1].map((d, i) => (
-                                  <div key={i} className={`flex flex-col items-center gap-1 ${d === 29 ? 'font-black' : 'opacity-50'}`}>
-                                      <span className="text-[10px] font-bold text-slate-400">
-                                          {['S','M','T','W','T','F','S'][i]}
-                                      </span>
-                                      <span className={`text-sm ${d === 29 ? (isDarkMode ? 'text-white' : 'text-black') : ''}`}>{d}</span>
-                                      {d === 29 && <div className="w-1 h-1 bg-teal-500 rounded-full mt-1"></div>}
-                                  </div>
-                              ))}
+                              {treatmentInfo.days.map((day, i) => {
+                                  const isTarget = day.getDate() === treatmentInfo.date.getDate();
+                                  return (
+                                      <div key={i} className={`flex flex-col items-center gap-1 ${isTarget ? 'font-black scale-110 transition-transform' : 'opacity-50'}`}>
+                                          <span className="text-[10px] font-bold text-slate-400">
+                                              {day.toLocaleDateString('en-US', { weekday: 'narrow' })}
+                                          </span>
+                                          <span className={`text-sm ${isTarget ? (isDarkMode ? 'text-white' : 'text-black') : ''}`}>
+                                              {day.getDate()}
+                                          </span>
+                                          {isTarget && <div className="w-1.5 h-1.5 bg-teal-500 rounded-full mt-1"></div>}
+                                      </div>
+                                  );
+                              })}
                           </div>
                       </div>
 
                       <div className={`p-6 rounded-3xl shadow-lg border relative overflow-hidden ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
-                          <div className="relative z-10">
-                              <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-2`}>Advice</h3>
-                              <p className={`text-xs ${subText} mb-4 leading-relaxed line-clamp-3`}>
-                                  {activePatient.diagnosisHistory && activePatient.diagnosisHistory.length > 0 
-                                    ? activePatient.diagnosisHistory[activePatient.diagnosisHistory.length - 1].note 
-                                    : "No recent diagnosis notes available."}
-                              </p>
-                              <a href="#" className="text-[10px] font-bold text-teal-500 underline uppercase tracking-widest">Clinical-Advice</a>
+                          <div className="relative z-10 flex flex-col h-full">
+                              <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-2`}>Doctor's Advice</h3>
+                              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                                  <p className={`text-xs ${subText} leading-relaxed whitespace-pre-wrap`}>
+                                      {latestAdvice}
+                                  </p>
+                              </div>
+                              <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                  <a href="#" className="text-[10px] font-bold text-teal-500 underline uppercase tracking-widest">Full Clinical Report</a>
+                              </div>
                           </div>
                       </div>
                   </div>
@@ -575,6 +692,38 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                         ? (patient.diagnosisHistory[patient.diagnosisHistory.length - 1].grade === 0 ? "Healthy" : `Grade ${patient.diagnosisHistory[patient.diagnosisHistory.length - 1].grade}`)
                                         : "Not Scanned";
                                     
+                                    // REAL-WORLD TRIAGE LOGIC
+                                    const getTriageDisplay = () => {
+                                        if (patient.status === 'Critical') {
+                                            return (
+                                                <div className="flex flex-col">
+                                                    <span className="flex items-center text-[10px] font-bold text-red-500 uppercase tracking-wider mb-1">
+                                                        <AlertTriangle size={10} className="mr-1 animate-pulse" /> Urgent Care
+                                                    </span>
+                                                    <span className="text-[9px] text-red-400 opacity-80">Laser/Surgery Req.</span>
+                                                </div>
+                                            );
+                                        } else if (patient.status === 'Follow-up') {
+                                            return (
+                                                <div className="flex flex-col">
+                                                    <span className="flex items-center text-[10px] font-bold text-orange-500 uppercase tracking-wider mb-1">
+                                                        <Eye size={10} className="mr-1" /> Monitoring
+                                                    </span>
+                                                    <span className="text-[9px] text-orange-400 opacity-80">Re-scan in 3mo</span>
+                                                </div>
+                                            );
+                                        } else {
+                                            return (
+                                                <div className="flex flex-col">
+                                                    <span className="flex items-center text-[10px] font-bold text-green-500 uppercase tracking-wider mb-1">
+                                                        <CheckCircle size={10} className="mr-1" /> Routine
+                                                    </span>
+                                                    <span className="text-[9px] text-green-400 opacity-80">Annual Checkup</span>
+                                                </div>
+                                            );
+                                        }
+                                    };
+
                                     return (
                                         <tr 
                                             key={patient.id} 
@@ -595,15 +744,10 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                             <td className="p-4 text-xs font-medium">{patient.age} yo</td>
                                             <td className="p-4 text-xs font-bold">{latestDiagnosis}</td>
                                             <td className="p-4 text-xs font-medium opacity-70">{patient.phone || "N/A"}</td>
-                                            <td className="p-4 text-xs font-medium opacity-70 truncate max-w-[150px]">{"Ho Chi Minh City"}</td>
+                                            <td className="p-4 text-xs font-medium opacity-70 truncate max-w-[150px]">{patient.address || "N/A"}</td>
                                             <td className="p-4 text-xs font-bold">{patient.bloodType || "O+"}</td>
                                             <td className="p-4 pr-6">
-                                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                                                    patient.status === 'Critical' ? 'bg-red-500/10 text-red-500' : 
-                                                    patient.status === 'Active' ? 'bg-green-500/10 text-green-500' : 'bg-slate-500/10 text-slate-500'
-                                                }`}>
-                                                    {patient.status || 'Non Urgent'}
-                                                </span>
+                                                {getTriageDisplay()}
                                             </td>
                                         </tr>
                                     );
@@ -667,6 +811,31 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                     <option value="Female">Female</option>
                                     <option value="Other">Other</option>
                                 </select>
+                            </div>
+                            <div className="col-span-2">
+                                <label className={`text-[10px] font-bold uppercase tracking-widest ${subText}`}>Contact (Optional)</label>
+                                <div className="grid grid-cols-2 gap-4 mt-2">
+                                    <input 
+                                        type="text" placeholder="Phone" value={newPatient.phone}
+                                        onChange={e => setNewPatient({...newPatient, phone: e.target.value})}
+                                        className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
+                                    />
+                                    <input 
+                                        type="email" placeholder="Email" value={newPatient.email}
+                                        onChange={e => setNewPatient({...newPatient, email: e.target.value})}
+                                        className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
+                                    />
+                                </div>
+                                <div className="mt-4">
+                                    <label className={`text-[10px] font-bold uppercase tracking-widest ${subText}`}>Address</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Full Address"
+                                        value={newPatient.address || ''}
+                                        onChange={e => setNewPatient({...newPatient, address: e.target.value})}
+                                        className={`w-full p-3 rounded-xl border outline-none font-bold text-sm mt-2 ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`}
+                                    />
+                                </div>
                             </div>
                         </div>
                         <button 

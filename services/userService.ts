@@ -15,24 +15,30 @@ const UPLOAD_PRESET = "medassist_preset";
 // =================================================================================
 
 // --- GET OR CREATE USER PROFILE ---
-export const getUserProfile = async (user: User): Promise<UserProfile> => {
+export const getUserProfile = async (user: User, role?: 'doctor' | 'patient'): Promise<UserProfile> => {
     const userRef = doc(db, COLLECTION_NAME, user.uid);
     const userSnap = await getDoc(userRef);
 
     if (userSnap.exists()) {
-        return userSnap.data() as UserProfile;
+        const data = userSnap.data() as UserProfile;
+        // Ensure role exists for backward compatibility (default to doctor if undefined)
+        if (!data.role) {
+            data.role = 'doctor'; 
+        }
+        return data;
     } else {
         const newProfile: UserProfile = {
             uid: user.uid,
-            displayName: user.displayName || 'Doctor',
+            role: role || 'doctor', // Use provided role or default to doctor
+            displayName: user.displayName || (role === 'patient' ? 'Patient' : 'Doctor'),
             email: user.email || '',
             photoURL: user.photoURL || '',
             bannerURL: '',
-            specialty: 'Medical Specialist',
-            hospital: 'General Hospital',
+            specialty: role === 'doctor' ? 'Medical Specialist' : undefined,
+            hospital: role === 'doctor' ? 'General Hospital' : undefined,
             location: 'Ho Chi Minh City, Vietnam',
             phone: '',
-            bio: 'Dedicated medical professional focused on patient care.',
+            bio: role === 'doctor' ? 'Dedicated medical professional.' : 'Patient account.',
             language: 'English'
         };
         await setDoc(userRef, newProfile);

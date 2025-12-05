@@ -8,16 +8,17 @@ export enum DRGrade {
 
 export interface UserProfile {
   uid: string;
+  role: 'doctor' | 'patient'; // Added role distinction
   displayName: string;
   email: string;
   photoURL?: string;
-  bannerURL?: string; // New: For profile cover image
-  specialty?: string; // e.g. "Chief Surgeon"
-  hospital?: string;  // e.g. "General Hospital"
-  location?: string;  // New: e.g. "Sylhet, Bangladesh"
+  bannerURL?: string;
+  specialty?: string;
+  hospital?: string;
+  location?: string;
   phone?: string;
   bio?: string;
-  language?: string; // New: e.g. "English" or "Vietnamese"
+  language?: string;
   themePreference?: 'dark' | 'light';
 }
 
@@ -32,7 +33,7 @@ export interface DiagnosisRecord {
 
 export interface Patient {
   id: string;
-  doctorUid: string; // New: Links patient to a specific doctor
+  doctorUid: string;
   name: string;
   age: number;
   gender: 'Male' | 'Female' | 'Other';
@@ -41,10 +42,10 @@ export interface Patient {
   status?: 'Active' | 'Follow-up' | 'Critical' | 'Discharged';
   phone?: string;
   email?: string;
-  // New fields for the UI
+  address?: string;
   bloodType?: string;
-  height?: number; // cm
-  weight?: number; // kg
+  height?: number;
+  weight?: number;
   avatarUrl?: string;
   diagnosisHistory?: DiagnosisRecord[];
 }
@@ -52,10 +53,10 @@ export interface Patient {
 export interface AnalysisResult {
   grade: DRGrade;
   confidence: number;
-  heatmapUrl?: string; // Optional URL if your local model returns a heatmap image
+  heatmapUrl?: string;
   processingTime: number;
   timestamp: string;
-  advice?: string; // Doctor's advice based on grade
+  advice?: string;
 }
 
 export interface ReportData {
@@ -82,7 +83,7 @@ export interface InventoryItem {
 
 export interface Appointment {
     id: string;
-    patientId?: string; // Link to Patient ID
+    patientId?: string;
     patientName: string;
     title: string;
     type: 'Diagnosis' | 'Consult' | 'Surgery' | 'Meeting';
@@ -93,21 +94,19 @@ export interface Appointment {
     notes?: string;
 }
 
-// --- CHAT INTERFACES ---
 export interface ChatMessage {
     id: string;
     text: string;
     senderId: string;
-    createdAt: any; // Firestore Timestamp
+    createdAt: any;
 }
 
 export interface ChatUser extends UserProfile {
-    // Extended properties for chat UI if needed
     status?: 'online' | 'offline';
 }
 
 export interface ChatSession {
-    id: string; // The chat ID (uid1_uid2)
+    id: string;
     participants: string[];
     lastMessage?: {
         text: string;
