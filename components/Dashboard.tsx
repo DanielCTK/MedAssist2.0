@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Users, Calendar as CalendarIcon, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2, ChevronLeft, ChevronRight, MessageCircle, UserCog, FileBarChart, Siren, Send, User as UserIcon, RefreshCw } from 'lucide-react';
+import { Users, Calendar as CalendarIcon, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2, ChevronLeft, ChevronRight, MessageCircle, UserCog, FileBarChart, Siren, Send, User as UserIcon, RefreshCw, Coffee } from 'lucide-react';
 import { BarChart, Bar, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { subscribeToPatients } from '../services/patientService';
-import { subscribeToAppointments, subscribeToAppointmentsRange, addAppointment, updateAppointmentStatus, updateAppointment, deleteAppointment } from '../services/scheduleService';
+import { subscribeToAppointments, subscribeToAppointmentsRange, addAppointment, updateAppointmentStatus, updateAppointment, deleteAppointment, subscribeToPendingAppointments } from '../services/scheduleService';
 import { subscribeToUsers, subscribeToMessages, sendMessage, getChatId, subscribeToActiveChats, markChatAsRead } from '../services/chatService';
 import { Patient, Appointment, UserProfile, ChatUser, ChatMessage, ChatSession } from '../types';
 import { User } from 'firebase/auth';
@@ -16,7 +16,7 @@ interface DashboardProps {
     setView: (view: string) => void;
 }
 
-const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]; // 8:00 to 17:00
+const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15]; // 8:00 AM to 3:00 PM based on image
 
 // --- EXTRACTED COMPONENTS TO PREVENT RE-RENDER STATE LOSS ---
 
@@ -89,7 +89,6 @@ const ChatInterface = ({
     useEffect(() => {
         if (currentUser && selectedChatUser) {
             const chatId = getChatId(currentUser.uid, selectedChatUser.uid);
-            console.log("Doctor connecting to chat:", chatId); 
             
             const unsub = subscribeToMessages(chatId, (msgs) => setMessages(msgs));
             markChatAsRead(chatId);
@@ -274,6 +273,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   const [viewMode, setViewMode] = useState<'personal' | 'department'>('personal');
   const [patients, setPatients] = useState<Patient[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [pendingAppointments, setPendingAppointments] = useState<Appointment[]>([]); // New State for inbox
   
   const [statsData, setStatsData] = useState<{name: string, patients: number}[]>([]);
   const [activeChats, setActiveChats] = useState<ChatSession[]>([]);
@@ -351,6 +351,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       );
   }, [activeChats, currentUser]);
 
+  // --- SUBSCRIBE TO APPOINTMENTS FOR CALENDAR/GANTT ---
   useEffect(() => {
       const year = selectedDate.getFullYear();
       const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
@@ -366,6 +367,19 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       );
       return () => unsubscribe();
   }, [selectedDate]);
+
+  // --- NEW: SUBSCRIBE TO PENDING APPOINTMENTS (GLOBAL INBOX) ---
+  useEffect(() => {
+      const unsubscribe = subscribeToPendingAppointments(
+          (data) => {
+              setPendingAppointments(data);
+          },
+          (err) => {
+              if (err?.code !== 'permission-denied') console.error("Pending fetch error", err);
+          }
+      );
+      return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
       const end = new Date();
@@ -496,11 +510,12 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   const formatTime = (time: number) => {
       const hours = Math.floor(time);
       const minutes = Math.round((time - hours) * 60);
-      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      const period = hours >= 12 ? 'PM' : 'AM';
+      const displayHours = hours > 12 ? hours - 12 : hours;
+      return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
   };
 
   // ... (Sub-components: WelcomeBanner, PersonalDashboard, DepartmentDashboard) ...
-  // Re-using existing components logic but ensuring render structure matches original
   const getTranslatedType = (type: string) => {
       // @ts-ignore
       return t.dashboard.schedule.types[type] || type;
@@ -555,13 +570,13 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
 
       // Helper variables for classes
       const cardStyle = isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-100 text-slate-900 shadow-lg shadow-blue-50";
-      const hoverStyle = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300 hover:border-blue-400 dark:hover:border-slate-600";
+      const hoverEffect = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300 hover:border-blue-400 dark:hover:border-slate-600";
 
       return (
         <motion.div initial="hidden" animate="show" variants={{ hidden: {opacity:0}, show: {opacity:1, transition: {staggerChildren: 0.1}} }} className="space-y-3">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <div className="space-y-3 lg:col-span-1">
-                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} relative overflow-hidden ${hoverStyle}`}>
+                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} relative overflow-hidden ${hoverEffect}`}>
                         <div className="flex items-center space-x-3 mb-3 relative z-10">
                             <div className="relative">
                                 <img src={userProfile?.photoURL || currentUser?.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop"} className={`w-12 h-12 rounded-xl object-cover border-2 ${isDarkMode ? 'border-red-500' : 'border-blue-500'} shadow-lg`} alt="Profile" />
@@ -589,53 +604,63 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                         </div>
                     </motion.div>
 
-                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} flex flex-col h-[320px] ${hoverStyle}`}>
+                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} flex flex-col h-[320px] ${hoverEffect}`}>
                         <div className="flex justify-between items-center mb-3">
-                            <h3 className="font-bold text-xs">{t.dashboard.agenda.title}</h3>
+                            <h3 className="font-bold text-xs">
+                                {pendingAppointments.length > 0 ? "Inbox & Agenda" : t.dashboard.agenda.title}
+                            </h3>
                             <button onClick={() => openAddModal()} className={`p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors ${isDarkMode ? 'text-red-500' : 'text-blue-500'}`}><Plus size={14} /></button>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
-                            {appointments.length === 0 ? (
-                                <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50"><CalendarIcon size={24} className="mb-2" /><p className="text-[10px] font-bold uppercase">{t.dashboard.schedule.no_appointments}</p><button onClick={() => openAddModal()} className="mt-2 text-[9px] underline">{t.dashboard.schedule.add_one}</button></div>
-                            ) : (
-                                appointments.map((item) => (
-                                    <div key={item.id} className="flex gap-2 group cursor-pointer relative" onClick={() => openEditModal(item)}>
-                                        <div className="flex flex-col items-center"><span className={`text-[9px] font-bold ${item.status === 'Done' ? 'text-slate-400 line-through' : (isDarkMode ? 'text-red-500' : 'text-blue-500')}`}>{formatTime(item.startTime)}</span><div className={`w-0.5 h-full mt-0.5 ${item.status === 'Done' ? 'bg-slate-200 dark:bg-slate-800' : isDarkMode ? 'bg-red-900' : 'bg-blue-200'}`} /></div>
-                                        <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all relative group hover:shadow-md ${item.status === 'In Progress' ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200') : item.status === 'Pending' ? (isDarkMode ? 'bg-yellow-900/10 border-yellow-800/30' : 'bg-yellow-50 border-yellow-200') : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}`}>
-                                            <div className="flex justify-between items-start">
-                                                <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{getTranslatedType(item.type)}</span>
-                                                
-                                                {/* ACTION BUTTONS */}
-                                                {item.status === 'Pending' ? (
-                                                    <div className="flex items-center space-x-1">
+                            {/* --- INBOX: PENDING REQUESTS (GLOBAL) --- */}
+                            {pendingAppointments.length > 0 && (
+                                <div className="mb-4">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 mb-2 pl-1">New Requests ({pendingAppointments.length})</p>
+                                    <div className="space-y-2">
+                                        {pendingAppointments.map(item => (
+                                            <div key={item.id} className={`p-2.5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10 transition-colors`}>
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <span className="text-[9px] font-bold uppercase text-yellow-500">{new Date(item.date).toLocaleDateString()}</span>
+                                                    <div className="flex gap-1">
                                                         <button 
                                                             onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }}
-                                                            className="p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-red-100 hover:text-red-500 dark:hover:bg-red-900/30 transition-colors"
-                                                            title="Reject"
-                                                        >
-                                                            <X size={12} />
-                                                        </button>
+                                                            className="p-1 rounded-full hover:bg-red-500 hover:text-white text-slate-400 transition-colors"
+                                                        ><X size={12}/></button>
                                                         <button 
                                                             onClick={(e) => handleStatusToggle(e, item.id, 'Pending')}
-                                                            className="p-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors shadow-sm"
-                                                            title="Confirm & Accept"
-                                                        >
-                                                            <Check size={12} strokeWidth={3} />
-                                                        </button>
+                                                            className="p-1 rounded-full bg-green-500 text-white hover:scale-110 transition-transform shadow-md"
+                                                        ><Check size={12}/></button>
                                                     </div>
-                                                ) : (
-                                                    <div className="flex items-center space-x-2">
-                                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
-                                                        <button onClick={(e) => handleStatusToggle(e, item.id, item.status)} className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${isDarkMode ? 'bg-blue-500' : 'bg-blue-500'} border-transparent` : item.status === 'Done' ? 'bg-green-500 border-transparent' : 'border-slate-300'}`}>
-                                                            {item.status === 'In Progress' && <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}
-                                                            {item.status === 'Done' && <Check size={10} className="text-white" />}
-                                                        </button>
-                                                    </div>
-                                                )}
+                                                </div>
+                                                <h4 className="font-bold text-xs">{item.title}</h4>
+                                                <p className="text-[10px] opacity-70 mt-0.5">{item.patientName}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="h-px bg-slate-200 dark:bg-slate-800 my-3" />
+                                </div>
+                            )}
+
+                            {/* --- DAILY AGENDA --- */}
+                            {appointments.filter(a => a.status !== 'Pending').length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50"><CalendarIcon size={24} className="mb-2" /><p className="text-[10px] font-bold uppercase">{t.dashboard.schedule.no_appointments}</p><button onClick={() => openAddModal()} className="mt-2 text-[9px] underline">{t.dashboard.schedule.add_one}</button></div>
+                            ) : (
+                                appointments.filter(a => a.status !== 'Pending').map((item) => (
+                                    <div key={item.id} className="flex gap-2 group cursor-pointer relative" onClick={() => openEditModal(item)}>
+                                        <div className="flex flex-col items-center"><span className={`text-[9px] font-bold ${item.status === 'Done' ? 'text-slate-400 line-through' : (isDarkMode ? 'text-red-500' : 'text-blue-500')}`}>{formatTime(item.startTime)}</span><div className={`w-0.5 h-full mt-0.5 ${item.status === 'Done' ? 'bg-slate-200 dark:bg-slate-800' : isDarkMode ? 'bg-red-900' : 'bg-blue-200'}`} /></div>
+                                        <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all relative group hover:shadow-md ${item.status === 'In Progress' ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200') : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}`}>
+                                            <div className="flex justify-between items-start">
+                                                <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{getTranslatedType(item.type)}</span>
+                                                <div className="flex items-center space-x-2">
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
+                                                    <button onClick={(e) => handleStatusToggle(e, item.id, item.status)} className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${isDarkMode ? 'bg-blue-500' : 'bg-blue-500'} border-transparent` : item.status === 'Done' ? 'bg-green-500 border-transparent' : 'border-slate-300'}`}>
+                                                        {item.status === 'In Progress' && <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}
+                                                        {item.status === 'Done' && <Check size={10} className="text-white" />}
+                                                    </button>
+                                                </div>
                                             </div>
                                             <h4 className={`text-[10px] font-bold ${item.status === 'Done' ? 'line-through text-slate-400' : ''} ${item.status === 'Pending' ? 'text-yellow-600 dark:text-yellow-500' : ''}`}>{item.title} - <span className="opacity-70">{item.patientName}</span></h4>
                                             {item.notes && <p className="text-[9px] text-slate-400 mt-1 line-clamp-1 italic">{item.notes}</p>}
-                                            {item.status === 'Pending' && <div className="absolute right-2 bottom-2"><span className="text-[8px] font-bold uppercase text-yellow-500 animate-pulse bg-yellow-500/10 px-1 rounded">New Request</span></div>}
                                         </div>
                                     </div>
                                 ))
@@ -674,7 +699,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                         </div>
                     </motion.div>
 
-                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} h-[200px] ${hoverStyle}`}>
+                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} h-[200px] ${hoverEffect}`}>
                         <div className="flex justify-between items-center mb-2">
                             <div><h3 className="font-bold text-xs">{t.dashboard.stats.title} (Last 7 Days)</h3></div>
                             <div className="flex space-x-2"><span className="flex items-center text-[9px] font-bold"><div className={`w-1 h-1 ${isDarkMode ? 'bg-red-500' : 'bg-blue-500'} rounded-full mr-1`}/> Appointments</span></div>
@@ -702,13 +727,140 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       );
   }
 
-  // ... (DepartmentDashboard, MiniReportModal, EmergencyModal) ...
-  // Keep existing implementation but ensure correct closure
-  
+  // --- DEPARTMENT DASHBOARD: ACTUAL CONFIRMED SCHEDULE ---
   const DepartmentDashboard = () => {
-        // ... (Same implementation as previous file, omitted for brevity but logic remains)
-        // Placeholder return to keep XML valid if full code isn't needed here
-        return <div className="p-4 text-center">Department View Active</div>;
+      // Group appointments by TYPE (Simulation of Resources/Activities)
+      // Since we don't have multiple doctors in this view, we categorize by Activity.
+      const activityTypes = ['Surgery', 'Consult', 'Diagnosis', 'Meeting'];
+
+      // Helper to get bar color based on type
+      const getBarColor = (type: string) => {
+          switch(type) {
+              case 'Surgery': return 'bg-blue-500 text-white';
+              case 'Consult': return 'bg-purple-500 text-white';
+              case 'Diagnosis': return 'bg-indigo-800 text-white';
+              case 'Meeting': return 'bg-slate-200 text-slate-700';
+              default: return 'bg-gray-100 text-gray-700';
+          }
+      };
+
+      const getIcon = (type: string) => {
+          switch(type) {
+              case 'Surgery': return <Activity size={12} />;
+              case 'Consult': return <MessageSquare size={12} />;
+              case 'Diagnosis': return <ScanEye size={12} />;
+              case 'Meeting': return <Coffee size={12} />;
+              default: return <Clock size={12} />;
+          }
+      };
+
+      return (
+          <div className={`p-6 rounded-2xl border shadow-lg ${cardClass} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
+              <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-black">Daily Schedule</h3>
+                  <div className="flex items-center gap-4">
+                      {/* Legend */}
+                      <div className="hidden md:flex gap-3 text-[10px] font-bold uppercase tracking-wider">
+                          <div className="flex items-center"><span className="w-2 h-2 rounded-full bg-blue-500 mr-1"/> Surgery</div>
+                          <div className="flex items-center"><span className="w-2 h-2 rounded-full bg-indigo-800 mr-1"/> Diagnosis</div>
+                          <div className="flex items-center"><span className="w-2 h-2 rounded-full bg-purple-500 mr-1"/> Consult</div>
+                      </div>
+                      <input 
+                            type="date" 
+                            value={selectedDate.toISOString().split('T')[0]}
+                            onChange={(e) => setSelectedDate(new Date(e.target.value))}
+                            className={`p-2 rounded-lg text-xs font-bold border outline-none ${isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-900'}`}
+                        />
+                  </div>
+              </div>
+
+              {/* GANTT CHART CONTAINER */}
+              <div className="relative w-full overflow-x-auto custom-scrollbar pb-4">
+                  <div className="min-w-[800px]">
+                      {/* Header Row (Time Slots) */}
+                      <div className="grid grid-cols-[150px_1fr] border-b border-slate-200 dark:border-slate-800 pb-3 mb-2">
+                          <div className="flex items-center justify-between pr-4">
+                              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Activity</span>
+                              <button onClick={() => openAddModal()} className="p-1 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors"><Plus size={14}/></button>
+                          </div>
+                          <div className="flex">
+                              {TIME_SLOTS.map(hour => (
+                                  <div key={hour} className="flex-1 text-center border-l border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase">
+                                      {hour}:00
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+
+                      {/* Activity Rows */}
+                      <div className="space-y-4">
+                          {activityTypes.map(type => {
+                              // Filter REAL appointments for this type
+                              // EXCLUDE Pending appointments as per request ("request hasn't crossed over")
+                              const typeAppts = appointments.filter(a => a.type === type && a.status !== 'Pending');
+
+                              return (
+                                  <div key={type} className="grid grid-cols-[150px_1fr] group">
+                                      {/* Row Label */}
+                                      <div className="flex items-center pr-4">
+                                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center mr-3 ${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                                              {getIcon(type)}
+                                          </div>
+                                          <div>
+                                              <h4 className="text-xs font-bold text-slate-900 dark:text-white">{type}</h4>
+                                              <p className="text-[9px] text-slate-500 uppercase tracking-wide">{typeAppts.length} Tasks</p>
+                                          </div>
+                                      </div>
+
+                                      {/* Timeline Track */}
+                                      <div className="relative h-12 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                          {/* Vertical Grid Lines */}
+                                          <div className="absolute inset-0 flex pointer-events-none">
+                                              {TIME_SLOTS.map(h => (
+                                                  <div key={h} className="flex-1 border-r border-slate-200/30 dark:border-slate-700/30 first:border-l"></div>
+                                              ))}
+                                          </div>
+
+                                          {/* Events */}
+                                          {typeAppts.map((appt, idx) => {
+                                              // Calculate position: (Start - MinTime) / TotalHours * 100%
+                                              const minTime = 8;
+                                              const totalHours = 8; // 8am to 4pm displayed
+                                              const left = ((appt.startTime - minTime) / totalHours) * 100;
+                                              const width = (appt.duration / totalHours) * 100;
+
+                                              if (appt.startTime < 8 || appt.startTime >= 16) return null;
+
+                                              return (
+                                                  <div 
+                                                      key={appt.id}
+                                                      className={`absolute top-1.5 bottom-1.5 rounded-lg px-3 flex items-center shadow-sm cursor-pointer hover:brightness-110 transition-all ${getBarColor(appt.type)} border border-white/10`}
+                                                      style={{ 
+                                                          left: `${Math.max(0, left)}%`, 
+                                                          width: `${Math.min(100 - left, width)}%` 
+                                                      }}
+                                                      onClick={() => openEditModal(appt)}
+                                                      title={`${appt.title} - ${appt.patientName}`}
+                                                  >
+                                                      <span className="text-[10px] font-bold truncate w-full">{appt.patientName}</span>
+                                                  </div>
+                                              )
+                                          })}
+                                          
+                                          {typeAppts.length === 0 && (
+                                              <div className="absolute inset-0 flex items-center justify-center opacity-20 text-[9px] font-bold uppercase tracking-widest text-slate-500">
+                                                  No Scheduled {type}
+                                              </div>
+                                          )}
+                                      </div>
+                                  </div>
+                              );
+                          })}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )
   };
 
   // Re-implementing MiniReport and Emergency to ensure no missing components

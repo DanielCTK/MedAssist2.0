@@ -81,6 +81,16 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     const [newBookReason, setNewBookReason] = useState(""); // This is now the "Note"
     const [selectedReasonType, setSelectedReasonType] = useState(APPOINTMENT_TYPES[0]);
     const [selectedTimeSlot, setSelectedTimeSlot] = useState(9); // Default 9 AM
+    
+    // New Date Input Helper
+    const dateInputRef = useRef<HTMLInputElement>(null);
+    const openDatePicker = () => {
+        try {
+            dateInputRef.current?.showPicker(); // Modern API
+        } catch {
+            dateInputRef.current?.focus(); // Fallback
+        }
+    };
 
     // --- AUTO-LINK EFFECT ---
     useEffect(() => {
@@ -571,9 +581,9 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                                                 app.status === 'Done' ? 'bg-green-100 text-green-600' : 
                                                 app.status === 'In Progress' ? 'bg-blue-100 text-blue-600' :
-                                                'bg-yellow-100 text-yellow-600'
+                                                'bg-yellow-100 text-yellow-600 animate-pulse'
                                             }`}>
-                                                {app.status === 'Pending' ? (language === 'vi' ? 'Đang duyệt' : 'Pending') : app.status}
+                                                {app.status === 'Pending' ? (language === 'vi' ? 'Chờ xác nhận' : 'Waiting Confirmation') : app.status}
                                             </span>
                                         </div>
                                     </div>
@@ -680,8 +690,9 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     </div>
 
                                     <div className={`relative flex items-center p-3 rounded-xl border ${isDarkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-200'} focus-within:border-blue-500 transition-colors`}>
-                                        <Calendar size={16} className={`mr-3 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}/>
+                                        <Calendar size={16} onClick={openDatePicker} className={`mr-3 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'} cursor-pointer hover:text-blue-500`}/>
                                         <input 
+                                            ref={dateInputRef}
                                             required 
                                             type="date" 
                                             min={todayStr}

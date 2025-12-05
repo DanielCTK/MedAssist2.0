@@ -28,6 +28,29 @@ export const subscribeToAppointments = (
     );
 };
 
+// --- NEW: GET ALL PENDING APPOINTMENTS (INBOX MODE) ---
+export const subscribeToPendingAppointments = (
+    onData: (appointments: Appointment[]) => void,
+    onError: (error: any) => void
+) => {
+    const q = query(
+        collection(db, COLLECTION_NAME), 
+        where("status", "==", "Pending")
+    );
+
+    return onSnapshot(q,
+        (snapshot) => {
+            const items = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            })) as Appointment[];
+            // Sort by date created (oldest first usually, or newest)
+            onData(items);
+        },
+        onError
+    );
+};
+
 // --- SYNC: GET APPOINTMENTS FOR A SPECIFIC PATIENT (REAL-TIME) ---
 export const subscribeToPatientAppointments = (
     patientUid: string,
