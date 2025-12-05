@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Users, Calendar as CalendarIcon, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2, ChevronLeft, ChevronRight, MessageCircle, UserCog, FileBarChart, Siren, Send, User as UserIcon } from 'lucide-react';
+import { Users, Calendar as CalendarIcon, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2, ChevronLeft, ChevronRight, MessageCircle, UserCog, FileBarChart, Siren, Send, User as UserIcon, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -45,6 +45,8 @@ const ChatInterface = ({
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputMsg, setInputMsg] = useState("");
     const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to force effect re-run
     
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -58,13 +60,11 @@ const ChatInterface = ({
                 const unsub = subscribeToUsers(currentUser.uid, (users) => {
                     setChatUsers(users.filter(u => u.role === 'doctor'));
                     setIsLoadingUsers(false);
+                    setIsRefreshing(false);
                 });
                 return () => unsub();
             } else {
                 // For Patients: Use the 'myPatients' list passed from Dashboard
-                // This ensures we are chatting with patients ALREADY LINKED to this doctor.
-                // We map Patient -> ChatUser. Crucial: We must have the 'uid' (Auth ID).
-                
                 // Filter only patients that have a linked User ID (uid)
                 const validPatients = myPatients
                     .filter(p => p.uid) 
@@ -78,24 +78,24 @@ const ChatInterface = ({
                 
                 setChatUsers(validPatients);
                 setIsLoadingUsers(false);
+                setIsRefreshing(false);
                 
-                // No subscription needed here as myPatients is already live-subscribed in Dashboard
                 return () => {};
             }
         }
-    }, [isOpen, isDoctorChat, currentUser, activeChats, myPatients]);
+    }, [isOpen, isDoctorChat, currentUser, activeChats, myPatients, refreshTrigger]);
 
     // Fetch messages when a user is selected
     useEffect(() => {
         if (currentUser && selectedChatUser) {
             const chatId = getChatId(currentUser.uid, selectedChatUser.uid);
-            console.log("Doctor connecting to chat:", chatId); // Debug
+            console.log("Doctor connecting to chat:", chatId); 
             
             const unsub = subscribeToMessages(chatId, (msgs) => setMessages(msgs));
             markChatAsRead(chatId);
             return () => unsub();
         }
-    }, [currentUser, selectedChatUser]);
+    }, [currentUser, selectedChatUser, refreshTrigger]); // Add refreshTrigger here too
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -129,6 +129,12 @@ const ChatInterface = ({
         }
     }
 
+    const handleManualRefresh = () => {
+        setIsRefreshing(true);
+        // Toggle trigger to force re-subscriptions
+        setTimeout(() => setRefreshTrigger(prev => prev + 1), 500); 
+    };
+
     const resetState = () => {
         setSelectedChatUser(null);
         setMessages([]);
@@ -156,7 +162,16 @@ const ChatInterface = ({
                                   {selectedChatUser && <span className="text-[10px] opacity-70">{selectedChatUser.role === 'patient' ? 'Patient' : 'Doctor'}</span>}
                               </div>
                           </div>
-                          <button onClick={resetState}><X size={18} /></button>
+                          <div className="flex items-center gap-2">
+                              <button 
+                                onClick={handleManualRefresh} 
+                                className={`p-1.5 hover:bg-white/20 rounded-full transition-all ${isRefreshing ? 'animate-spin' : ''}`}
+                                title="Reload messages"
+                              >
+                                  <RefreshCw size={16} />
+                              </button>
+                              <button onClick={resetState}><X size={18} /></button>
+                          </div>
                       </div>
 
                       {!selectedChatUser ? (
@@ -263,6 +278,10 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   const [statsData, setStatsData] = useState<{name: string, patients: number}[]>([]);
   const [activeChats, setActiveChats] = useState<ChatSession[]>([]);
 
+  // ADDED: Triggers for refreshing data
+  const [patientRefreshTrigger, setPatientRefreshTrigger] = useState(0);
+  const [isRefreshingPatients, setIsRefreshingPatients] = useState(false);
+
   const [scheduleViewType, setScheduleViewType] = useState<'timeline' | 'calendar'>('timeline');
   const [selectedDate, setSelectedDate] = useState(new Date());
 
@@ -295,14 +314,25 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
         // Fetch Patients - This list now populates the ChatInterface too
         const unsubscribe = subscribeToPatients(
             currentUser.uid,
-            (data) => setPatients(data),
+            (data) => {
+                setPatients(data);
+                setIsRefreshingPatients(false); // Stop spinner when data arrives
+            },
             (err) => {
                 if (err?.code !== 'permission-denied') console.error("Patient fetch error", err);
+                setIsRefreshingPatients(false);
             }
         );
         return () => unsubscribe();
     }
-  }, [currentUser]);
+  }, [currentUser, patientRefreshTrigger]); // Re-run when trigger changes
+
+  const handlePatientRefresh = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsRefreshingPatients(true);
+      // Small delay to ensure state updates if data is cached
+      setTimeout(() => setPatientRefreshTrigger(prev => prev + 1), 200);
+  };
 
   // ... (Rest of logic: Active Chats, Appointments, Stats) ...
   useEffect(() => {
@@ -458,6 +488,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
 
   const handleStatusToggle = async (e: React.MouseEvent, id: string, currentStatus: string) => {
       e.stopPropagation();
+      // Logic for Pending: Confirming goes to In Progress
       const newStatus = currentStatus === 'Done' ? 'Pending' : currentStatus === 'Pending' ? 'In Progress' : 'Done';
       await updateAppointmentStatus(id, newStatus as any);
   };
@@ -542,8 +573,13 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 relative z-10">
-                            <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                                <p className={`text-[8px] font-bold uppercase ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{t.dashboard.profile.patients}</p>
+                            <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} relative group`}>
+                                <div className="flex justify-between items-center">
+                                    <p className={`text-[8px] font-bold uppercase ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{t.dashboard.profile.patients}</p>
+                                    <button onClick={handlePatientRefresh} className={`p-1 rounded-full hover:bg-slate-700/20 transition-colors ${isRefreshingPatients ? 'animate-spin' : ''}`}>
+                                        <RefreshCw size={10} className={isDarkMode ? 'text-slate-400' : 'text-slate-500'} />
+                                    </button>
+                                </div>
                                 <p className={`text-sm font-black ${isDarkMode ? 'text-red-500' : 'text-blue-500'}`}>{patients.length > 0 ? patients.length : <Loader2 size={12} className="animate-spin inline"/>}</p>
                             </div>
                             <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
@@ -565,10 +601,41 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                 appointments.map((item) => (
                                     <div key={item.id} className="flex gap-2 group cursor-pointer relative" onClick={() => openEditModal(item)}>
                                         <div className="flex flex-col items-center"><span className={`text-[9px] font-bold ${item.status === 'Done' ? 'text-slate-400 line-through' : (isDarkMode ? 'text-red-500' : 'text-blue-500')}`}>{formatTime(item.startTime)}</span><div className={`w-0.5 h-full mt-0.5 ${item.status === 'Done' ? 'bg-slate-200 dark:bg-slate-800' : isDarkMode ? 'bg-red-900' : 'bg-blue-200'}`} /></div>
-                                        <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all relative group hover:shadow-md ${item.status === 'In Progress' ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200') : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}`}>
-                                            <div className="flex justify-between items-start"><span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{getTranslatedType(item.type)}</span><div className="flex items-center space-x-2"><button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500"><Trash2 size={12} /></button><button onClick={(e) => handleStatusToggle(e, item.id, item.status)} className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${isDarkMode ? 'bg-red-500' : 'bg-blue-500'} border-transparent` : 'border-slate-300'}`}>{item.status === 'In Progress' && <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}</button></div></div>
-                                            <h4 className={`text-[10px] font-bold ${item.status === 'Done' ? 'line-through text-slate-400' : ''}`}>{item.title} - <span className="opacity-70">{item.patientName}</span></h4>
-                                            <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={10} className="text-slate-400"/></div>
+                                        <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all relative group hover:shadow-md ${item.status === 'In Progress' ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200') : item.status === 'Pending' ? (isDarkMode ? 'bg-yellow-900/10 border-yellow-800/30' : 'bg-yellow-50 border-yellow-200') : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}`}>
+                                            <div className="flex justify-between items-start">
+                                                <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{getTranslatedType(item.type)}</span>
+                                                
+                                                {/* ACTION BUTTONS */}
+                                                {item.status === 'Pending' ? (
+                                                    <div className="flex items-center space-x-1">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }}
+                                                            className="p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-red-100 hover:text-red-500 dark:hover:bg-red-900/30 transition-colors"
+                                                            title="Reject"
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => handleStatusToggle(e, item.id, 'Pending')}
+                                                            className="p-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors shadow-sm"
+                                                            title="Confirm & Accept"
+                                                        >
+                                                            <Check size={12} strokeWidth={3} />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center space-x-2">
+                                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
+                                                        <button onClick={(e) => handleStatusToggle(e, item.id, item.status)} className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${isDarkMode ? 'bg-blue-500' : 'bg-blue-500'} border-transparent` : item.status === 'Done' ? 'bg-green-500 border-transparent' : 'border-slate-300'}`}>
+                                                            {item.status === 'In Progress' && <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}
+                                                            {item.status === 'Done' && <Check size={10} className="text-white" />}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <h4 className={`text-[10px] font-bold ${item.status === 'Done' ? 'line-through text-slate-400' : ''} ${item.status === 'Pending' ? 'text-yellow-600 dark:text-yellow-500' : ''}`}>{item.title} - <span className="opacity-70">{item.patientName}</span></h4>
+                                            {item.notes && <p className="text-[9px] text-slate-400 mt-1 line-clamp-1 italic">{item.notes}</p>}
+                                            {item.status === 'Pending' && <div className="absolute right-2 bottom-2"><span className="text-[8px] font-bold uppercase text-yellow-500 animate-pulse bg-yellow-500/10 px-1 rounded">New Request</span></div>}
                                         </div>
                                     </div>
                                 ))
@@ -583,8 +650,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                         <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>{t.dashboard.quick_actions.title}</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                             {[
-                                { id: 'chat_patient', icon: MessageCircle, label: t.dashboard.quick_actions.chat_patient, color: isDarkMode ? 'text-teal-500' : 'text-teal-600', bg: 'bg-teal-500/10', showDot: false },
-                                { id: 'chat_doctor', icon: UserCog, label: t.dashboard.quick_actions.chat_doctor, color: 'text-indigo-500', bg: 'bg-indigo-500/10', showDot: hasUnreadMessages },
+                                { id: 'chat_patient', icon: MessageCircle, label: t.dashboard.quick_actions.chat_patient, color: isDarkMode ? 'text-teal-500' : 'text-teal-600', bg: 'bg-teal-500/10', showDot: hasUnreadMessages },
+                                { id: 'chat_doctor', icon: UserCog, label: t.dashboard.quick_actions.chat_doctor, color: 'text-indigo-500', bg: 'bg-indigo-500/10', showDot: false },
                                 { id: 'mini_report', icon: FileBarChart, label: t.dashboard.quick_actions.mini_report, color: 'text-amber-500', bg: 'bg-amber-500/10', showDot: false },
                                 { id: 'emergency', icon: Siren, label: t.dashboard.quick_actions.emergency, color: 'text-red-600', bg: 'bg-red-600/10', showDot: false },
                             ].map((action, i) => (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Lock, Mail, ArrowRight, Loader2, ShieldCheck, Fingerprint, AlertCircle, Stethoscope, UserCircle } from 'lucide-react';
+import { X, User, Lock, Mail, ArrowRight, Loader2, ShieldCheck, Fingerprint, AlertCircle, Stethoscope, UserCircle, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from "firebase/auth";
@@ -31,10 +31,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'doctor' | 'patient'>('patient'); // Default to patient
+  const [selectedRole, setSelectedRole] = useState<'doctor' | 'patient'>('patient');
   const [error, setError] = useState<string | null>(null);
 
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const resetForm = () => {
       setEmail('');
@@ -48,25 +48,20 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
       resetForm();
   }
 
-  // Helper to get translated error
   const getErrorMessage = (code: string) => {
-    // Check for common auth error codes
     switch(code) {
         case 'auth/invalid-credential': 
         case 'auth/invalid-login-credentials':
-            return t.auth.errors.invalid_credential;
+            return language === 'vi' ? "Email hoặc mật khẩu không đúng." : t.auth.errors.invalid_credential;
         case 'auth/user-not-found': return t.auth.errors.user_not_found;
         case 'auth/wrong-password': return t.auth.errors.wrong_password;
-        case 'auth/email-already-in-use': return t.auth.errors.email_in_use;
-        case 'auth/weak-password': return t.auth.errors.weak_password;
+        case 'auth/email-already-in-use': return language === 'vi' ? "Email này đã được sử dụng." : t.auth.errors.email_in_use;
+        case 'auth/weak-password': return language === 'vi' ? "Mật khẩu quá yếu (tối thiểu 6 ký tự)." : t.auth.errors.weak_password;
         case 'auth/invalid-email': return t.auth.errors.invalid_email;
-        case 'auth/network-request-failed': return "Network error. Check your connection.";
-        case 'auth/too-many-requests': return "Too many failed attempts. Try again later.";
         default: return t.auth.errors.general; 
     }
   };
 
-  // Handle Email/Password Login & Register
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -77,41 +72,26 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
         if (isLogin) {
             const result = await signInWithEmailAndPassword(auth, email, password);
             user = result.user;
-            // For login, we just ensure profile exists (reads role)
             if (user) await getUserProfile(user); 
         } else {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             user = userCredential.user;
             if (fullName && user) {
-                await updateProfile(user, {
-                    displayName: fullName
-                });
+                await updateProfile(user, { displayName: fullName });
             }
-            // For register, we MUST force the role creation
             if (user) {
-                // Ensure profile exists first
                 await getUserProfile(user, selectedRole);
-                // Explicitly force update to handle any race conditions with App.tsx default creation
                 await updateUserProfile(user.uid, { role: selectedRole });
             }
         }
-        
         onLogin();
     } catch (err: any) {
-        // Suppress console error for expected auth failures to avoid alarm
-        const errorCode = err.code;
-        if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password') {
-            console.warn("Authentication failed (expected):", errorCode);
-        } else {
-            console.error("Auth Error:", err);
-        }
-        setError(getErrorMessage(errorCode));
+        setError(getErrorMessage(err.code));
     } finally {
         setIsLoading(false);
     }
   };
 
-  // Handle Google Login
   const handleGoogleLogin = async () => {
       setIsGoogleLoading(true);
       setError(null);
@@ -119,18 +99,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
           const provider = new GoogleAuthProvider();
           provider.setCustomParameters({ prompt: 'select_account' });
           const result = await signInWithPopup(auth, provider);
-          
-          // For Google Login, we default new users to Patient if they don't exist
-          // Or we could ask, but for flow simplicity, we'll assume patient unless invite logic existed
-          await getUserProfile(result.user, 'patient'); 
-          
+          await getUserProfile(result.user, 'patient'); // Default to patient for Google
           onLogin();
       } catch (err: any) {
           console.error("Google Auth Error:", err);
           if (err.code !== 'auth/popup-closed-by-user') {
-              // Try to map code first, otherwise fall back to message or default
-              const mappedMsg = getErrorMessage(err.code);
-              setError(mappedMsg !== t.auth.errors.general ? mappedMsg : (err.message || t.auth.errors.google_failed));
+              setError(t.auth.errors.google_failed);
           }
       } finally {
           setIsGoogleLoading(false);
@@ -141,86 +115,67 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* Backdrop */}
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
       />
 
-      {/* Modal Content */}
       <motion.div 
         initial={{ scale: 0.95, opacity: 0, y: 20 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.95, opacity: 0, y: 20 }}
-        className="relative w-full max-w-4xl h-auto md:h-[600px] bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl overflow-hidden flex flex-col md:flex-row"
+        className="relative w-full max-w-4xl min-h-[550px] bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl overflow-hidden flex flex-col md:flex-row"
       >
-        {/* Close Button */}
         <button 
             onClick={onClose}
-            className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors z-20 bg-slate-800/50 p-2 rounded-full hover:bg-slate-700"
+            className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors z-20 p-2 rounded-full hover:bg-white/10"
         >
-            <X size={18} />
+            <X size={20} />
         </button>
 
-        {/* --- LEFT SIDE: BRANDING & ARTWORK --- */}
-        <div className="hidden md:flex md:w-5/12 relative flex-col justify-between p-10 overflow-hidden bg-black">
-            {/* Animated Background */}
+        {/* --- LEFT: BRANDING --- */}
+        <div className="hidden md:flex md:w-5/12 relative flex-col justify-between p-10 bg-black overflow-hidden">
             <div className={`absolute inset-0 opacity-20 bg-gradient-to-br ${themeAccent.replace('bg-', 'from-').replace('text-', 'from-')} to-transparent`} />
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay" />
             
-            {/* Floating Visual Element */}
+            {/* Animated Blob */}
             <motion.div 
-                animate={{ 
-                    y: [0, -10, 0],
-                    opacity: [0.5, 0.8, 0.5]
-                }}
-                transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-                className={`absolute top-1/4 right-[-50px] w-64 h-64 rounded-full ${themeAccent} blur-[80px] opacity-20`} 
+                animate={{ y: [0, -15, 0], opacity: [0.3, 0.6, 0.3] }}
+                transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+                className={`absolute top-1/4 -right-10 w-72 h-72 rounded-full ${themeAccent} blur-[90px] opacity-20`} 
             />
 
-            {/* Logo */}
             <div className="relative z-10">
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2.5 mb-6">
                     <div className={`w-8 h-8 rounded bg-gradient-to-br ${themeAccent.replace('bg-', 'from-')} to-white flex items-center justify-center text-slate-900 font-black italic`}>M</div>
                     <span className="text-xl font-black italic text-white tracking-tighter">MED<span className={`${themeAccent.replace('bg-', 'text-')}`}>ASSIST</span></span>
                 </div>
-            </div>
-
-            {/* Content */}
-            <div className="relative z-10 space-y-4">
-                <h2 className="text-3xl font-bold text-white leading-tight">
+                <h2 className="text-3xl font-bold text-white leading-tight mb-4">
                     {isLogin ? t.auth.welcome_back : t.auth.join_revolution}
                 </h2>
-                <p className="text-slate-400 text-sm leading-relaxed">
+                <p className="text-slate-400 text-sm leading-relaxed max-w-xs">
                     {t.auth.hero_desc}
                 </p>
-                
-                {/* Trust Badges */}
-                <div className="flex items-center space-x-4 pt-4 border-t border-white/10 mt-4">
-                    <div className="flex items-center space-x-2 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
-                        <ShieldCheck size={14} className="text-green-500" />
-                        <span>HIPAA Secure</span>
-                    </div>
-                    <div className="flex items-center space-x-2 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
-                        <Fingerprint size={14} className="text-blue-500" />
-                        <span>End-to-End Encrypted</span>
-                    </div>
-                </div>
             </div>
 
-            {/* Copyright */}
-            <div className="relative z-10 text-[10px] text-slate-600">
-                © 2024 MedAssist AI Inc.
+            <div className="relative z-10 pt-6 border-t border-white/10">
+                <div className="flex items-center space-x-4 mb-2">
+                    <div className="flex items-center space-x-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        <ShieldCheck size={14} className="text-green-500" />
+                        <span>HIPAA Compliant</span>
+                    </div>
+                </div>
+                <p className="text-[10px] text-slate-600">© 2024 MedAssist AI Inc.</p>
             </div>
         </div>
 
-        {/* --- RIGHT SIDE: FORM --- */}
-        <div className="w-full md:w-7/12 p-8 md:p-12 flex flex-col justify-center bg-slate-900 relative">
-            <div className="max-w-sm mx-auto w-full">
-                <div className="mb-6 text-center md:text-left">
+        {/* --- RIGHT: FORM --- */}
+        <div className="w-full md:w-7/12 p-8 md:p-10 flex flex-col justify-center bg-slate-900 relative">
+            <div className="max-w-md mx-auto w-full">
+                <div className="mb-6">
                     <h3 className="text-2xl font-bold text-white mb-2">
                         {isLogin ? t.auth.login_title : t.auth.create_title}
                     </h3>
@@ -229,88 +184,81 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
                     </p>
                 </div>
 
-                {/* Error Message */}
+                {/* Error Banner */}
                 <AnimatePresence>
                     {error && (
                         <motion.div 
                             initial={{ opacity: 0, height: 0, marginBottom: 0 }}
                             animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
                             exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                            className="bg-red-500/10 border border-red-500/50 rounded-lg px-4 py-3 flex items-center text-red-400 text-xs font-bold break-words"
+                            className="bg-red-500/10 border border-red-500/50 rounded-xl px-4 py-3 flex items-start gap-3 text-red-400 text-xs font-medium"
                         >
-                            <AlertCircle size={16} className="mr-2 flex-shrink-0" />
+                            <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
                             <span>{error}</span>
                         </motion.div>
                     )}
                 </AnimatePresence>
 
-                {/* Role Selection (Only on Register) */}
-                {!isLogin && (
-                    <div className="flex bg-slate-800 p-1 rounded-lg mb-6">
-                        <button 
-                            type="button"
-                            onClick={() => setSelectedRole('patient')}
-                            className={`flex-1 flex items-center justify-center py-2 rounded-md text-xs font-bold uppercase transition-all ${selectedRole === 'patient' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                {/* ROLE SELECTION (Visual Cards) - Only on Register */}
+                <AnimatePresence>
+                    {!isLogin && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                            animate={{ opacity: 1, height: 'auto', marginBottom: 24 }}
+                            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                            className="grid grid-cols-2 gap-3"
                         >
-                            <UserCircle size={16} className="mr-2" /> {t.auth.role_patient}
-                        </button>
-                        <button 
-                            type="button"
-                            onClick={() => setSelectedRole('doctor')}
-                            className={`flex-1 flex items-center justify-center py-2 rounded-md text-xs font-bold uppercase transition-all ${selectedRole === 'doctor' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-                        >
-                            <Stethoscope size={16} className="mr-2" /> {t.auth.role_doctor}
-                        </button>
-                    </div>
-                )}
-
-                {/* GOOGLE LOGIN BUTTON */}
-                <button 
-                    onClick={handleGoogleLogin}
-                    disabled={isGoogleLoading || isLoading}
-                    className="w-full bg-white hover:bg-slate-100 text-slate-900 font-bold py-3 px-4 rounded-lg flex items-center justify-center space-x-3 transition-all duration-200 shadow-lg shadow-black/20 mb-6 group disabled:opacity-70"
-                >
-                    {isGoogleLoading ? (
-                        <Loader2 size={20} className="animate-spin text-slate-600" />
-                    ) : (
-                        <>
-                            <GoogleIcon />
-                            <span>{t.auth.google_btn}</span>
-                        </>
-                    )}
-                </button>
-
-                {/* Divider */}
-                <div className="relative flex items-center justify-center mb-6">
-                    <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-slate-700"></div>
-                    </div>
-                    <span className="relative z-10 bg-slate-900 px-4 text-xs text-slate-500 font-bold uppercase tracking-wider">
-                        {t.auth.or_email}
-                    </span>
-                </div>
-
-                {/* Form Inputs */}
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <AnimatePresence mode="wait">
-                        {!isLogin && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="overflow-hidden"
+                            <div 
+                                onClick={() => setSelectedRole('patient')}
+                                className={`cursor-pointer relative p-3 rounded-xl border-2 transition-all duration-300 flex flex-col items-center text-center gap-2 ${
+                                    selectedRole === 'patient' 
+                                    ? 'bg-blue-600/10 border-blue-600' 
+                                    : 'bg-slate-800 border-transparent hover:bg-slate-700'
+                                }`}
                             >
+                                {selectedRole === 'patient' && <div className="absolute top-2 right-2 text-blue-500"><CheckCircle2 size={16} fill="currentColor" className="text-white"/></div>}
+                                <div className={`p-2 rounded-full ${selectedRole === 'patient' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                                    <UserCircle size={20} />
+                                </div>
+                                <div>
+                                    <p className={`text-xs font-bold uppercase ${selectedRole === 'patient' ? 'text-blue-500' : 'text-slate-300'}`}>{language === 'vi' ? 'Bệnh Nhân' : 'Patient'}</p>
+                                    <p className="text-[10px] text-slate-500 leading-tight mt-1">{language === 'vi' ? 'Xem hồ sơ & lịch hẹn' : 'View records & tasks'}</p>
+                                </div>
+                            </div>
+
+                            <div 
+                                onClick={() => setSelectedRole('doctor')}
+                                className={`cursor-pointer relative p-3 rounded-xl border-2 transition-all duration-300 flex flex-col items-center text-center gap-2 ${
+                                    selectedRole === 'doctor' 
+                                    ? 'bg-indigo-600/10 border-indigo-600' 
+                                    : 'bg-slate-800 border-transparent hover:bg-slate-700'
+                                }`}
+                            >
+                                {selectedRole === 'doctor' && <div className="absolute top-2 right-2 text-indigo-500"><CheckCircle2 size={16} fill="currentColor" className="text-white"/></div>}
+                                <div className={`p-2 rounded-full ${selectedRole === 'doctor' ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                                    <Stethoscope size={20} />
+                                </div>
+                                <div>
+                                    <p className={`text-xs font-bold uppercase ${selectedRole === 'doctor' ? 'text-indigo-500' : 'text-slate-300'}`}>{language === 'vi' ? 'Bác Sĩ' : 'Doctor'}</p>
+                                    <p className="text-[10px] text-slate-500 leading-tight mt-1">{language === 'vi' ? 'Quản lý & Chẩn đoán' : 'Manage & Diagnose'}</p>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <AnimatePresence>
+                        {!isLogin && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                                 <div className="relative group">
-                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                                         <User className="text-slate-500 group-focus-within:text-white transition-colors" size={18} />
                                     </div>
                                     <input 
-                                        type="text" 
-                                        placeholder={t.auth.full_name} 
-                                        required={!isLogin}
-                                        value={fullName}
-                                        onChange={(e) => setFullName(e.target.value)}
-                                        className="w-full bg-slate-950/50 border border-slate-700 rounded-lg py-3 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:border-white focus:ring-1 focus:ring-white outline-none transition-all"
+                                        type="text" placeholder={t.auth.full_name} required={!isLogin}
+                                        value={fullName} onChange={(e) => setFullName(e.target.value)}
+                                        className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3.5 pl-11 pr-4 text-sm text-white placeholder-slate-500 focus:border-white focus:ring-1 focus:ring-white outline-none transition-all"
                                     />
                                 </div>
                             </motion.div>
@@ -318,45 +266,32 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
                     </AnimatePresence>
                     
                     <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                             <Mail className="text-slate-500 group-focus-within:text-white transition-colors" size={18} />
                         </div>
                         <input 
-                            type="email" 
-                            placeholder={t.auth.email} 
-                            required
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className="w-full bg-slate-950/50 border border-slate-700 rounded-lg py-3 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:border-white focus:ring-1 focus:ring-white outline-none transition-all"
+                            type="email" placeholder={t.auth.email} required
+                            value={email} onChange={(e) => setEmail(e.target.value)}
+                            className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3.5 pl-11 pr-4 text-sm text-white placeholder-slate-500 focus:border-white focus:ring-1 focus:ring-white outline-none transition-all"
                         />
                     </div>
 
                     <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                             <Lock className="text-slate-500 group-focus-within:text-white transition-colors" size={18} />
                         </div>
                         <input 
-                            type="password" 
-                            placeholder={t.auth.password} 
-                            required
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            className="w-full bg-slate-950/50 border border-slate-700 rounded-lg py-3 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:border-white focus:ring-1 focus:ring-white outline-none transition-all"
+                            type="password" placeholder={t.auth.password} required
+                            value={password} onChange={(e) => setPassword(e.target.value)}
+                            className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3.5 pl-11 pr-4 text-sm text-white placeholder-slate-500 focus:border-white focus:ring-1 focus:ring-white outline-none transition-all"
                         />
                     </div>
 
-                    {/* Main Action Button */}
                     <button 
-                        type="submit"
-                        disabled={isLoading || isGoogleLoading}
-                        className={`w-full py-3.5 mt-2 ${themeAccent} text-white font-bold rounded-lg uppercase text-xs tracking-widest hover:brightness-110 hover:shadow-lg hover:shadow-${themeAccent.replace('bg-', '')}/30 transition-all flex items-center justify-center group disabled:opacity-70 disabled:cursor-not-allowed`}
+                        type="submit" disabled={isLoading || isGoogleLoading}
+                        className={`w-full py-4 mt-2 ${themeAccent} text-white font-bold rounded-xl uppercase text-xs tracking-widest hover:brightness-110 hover:shadow-lg hover:shadow-blue-500/20 transition-all flex items-center justify-center group disabled:opacity-70 disabled:cursor-not-allowed`}
                     >
-                        {isLoading ? (
-                            <>
-                                <Loader2 size={16} className="mr-2 animate-spin" />
-                                {t.auth.processing}
-                            </>
-                        ) : (
+                        {isLoading ? <Loader2 size={16} className="mr-2 animate-spin" /> : (
                             <>
                                 {isLogin ? t.auth.sign_in_btn : t.auth.create_btn}
                                 <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
@@ -365,19 +300,28 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
                     </button>
                 </form>
 
-                {/* Footer Links */}
-                <div className="mt-6 flex flex-col items-center space-y-3">
-                    <div className="text-sm text-slate-400">
-                        {isLogin ? t.auth.no_account : t.auth.has_account}{" "}
-                        <button 
-                            onClick={toggleMode} 
-                            className={`font-bold ${themeAccent.replace('bg-', 'text-')} hover:underline transition-colors`}
-                        >
-                            {isLogin ? t.auth.register_now : t.auth.sign_in_btn}
-                        </button>
-                    </div>
+                <div className="relative flex items-center justify-center my-6">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-700"></div></div>
+                    <span className="relative z-10 bg-slate-900 px-4 text-[10px] text-slate-500 font-bold uppercase tracking-wider">{t.auth.or_email}</span>
                 </div>
 
+                <button 
+                    onClick={handleGoogleLogin} disabled={isGoogleLoading || isLoading}
+                    className="w-full bg-white hover:bg-slate-100 text-slate-900 font-bold py-3.5 px-4 rounded-xl flex items-center justify-center space-x-3 transition-all duration-200 shadow-lg disabled:opacity-70"
+                >
+                    {isGoogleLoading ? <Loader2 size={20} className="animate-spin text-slate-600" /> : (
+                        <><GoogleIcon /><span>{t.auth.google_btn}</span></>
+                    )}
+                </button>
+
+                <div className="mt-6 text-center">
+                    <p className="text-sm text-slate-400">
+                        {isLogin ? t.auth.no_account : t.auth.has_account}{" "}
+                        <button onClick={toggleMode} className={`font-bold ${themeAccent.replace('bg-', 'text-')} hover:underline transition-colors`}>
+                            {isLogin ? t.auth.register_now : t.auth.sign_in_btn}
+                        </button>
+                    </p>
+                </div>
             </div>
         </div>
       </motion.div>

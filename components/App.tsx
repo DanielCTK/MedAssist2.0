@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope } from 'lucide-react';
+import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope, CheckCircle2, MessageCircle, X } from 'lucide-react';
 
 // Relative imports for components in the same directory
 import Sidebar from './Sidebar';
@@ -43,6 +43,10 @@ const App: React.FC = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
+  // NOTIFICATION STATE
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
   // Data for search (Cached)
   const [allPatients, setAllPatients] = useState<Patient[]>([]);
   const [allInventory, setAllInventory] = useState<InventoryItem[]>([]);
@@ -69,8 +73,6 @@ const App: React.FC = () => {
                  setIsProfileLoading(false);
              } else {
                  // 2. STOP AUTO-CREATION.
-                 // If profile is null, we set it to null and let the UI render the "Role Selection" screen.
-                 // This prevents accidentally defaulting to 'doctor'.
                  setUserProfile(null);
                  setIsProfileLoading(false);
              }
@@ -109,16 +111,30 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
-  // Calculate Global Unread Messages
-  const unreadMessageCount = useMemo(() => {
-      if (!currentUser) return 0;
-      return activeChats.reduce((acc, chat) => {
+  // Calculate Global Unread Messages & Details
+  const unreadData = useMemo(() => {
+      if (!currentUser) return { count: 0, items: [] };
+      
+      const items: { senderName: string, text: string, time: any }[] = [];
+      let count = 0;
+
+      activeChats.forEach(chat => {
           if (chat.lastMessage && !chat.lastMessage.seen && chat.lastMessage.senderId !== currentUser.uid) {
-              return acc + 1;
+              count++;
+              // Try to find sender name in patients list
+              const patient = allPatients.find(p => p.uid === chat.lastMessage?.senderId);
+              const name = patient ? patient.name : "Unknown User";
+              
+              items.push({
+                  senderName: name,
+                  text: chat.lastMessage.text,
+                  time: chat.lastMessage.timestamp
+              });
           }
-          return acc;
-      }, 0);
-  }, [activeChats, currentUser]);
+      });
+
+      return { count, items };
+  }, [activeChats, currentUser, allPatients]);
 
   // Global Search Logic
   useEffect(() => {
@@ -163,11 +179,14 @@ const App: React.FC = () => {
       setSearchResults(results.slice(0, 8)); // Limit to 8 results
   }, [searchQuery, allPatients, allInventory]);
 
-  // Click outside to close search
+  // Click outside to close search and notifications
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
           if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
               setIsSearchOpen(false);
+          }
+          if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+              setIsNotificationsOpen(false);
           }
       };
       document.addEventListener("mousedown", handleClickOutside);
@@ -226,52 +245,86 @@ const App: React.FC = () => {
   // 1. GLOBAL LOADING STATE
   if (isLoadingAuth || (currentUser && isProfileLoading)) {
     return (
-        <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white">
-            <Loader2 size={48} className="animate-spin text-red-600 mb-4" />
-            <p className="text-xs uppercase tracking-widest font-bold opacity-50">
-                {isLoadingAuth ? 'Initializing...' : 'Setting up profile...'}
-            </p>
+        <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white relative overflow-hidden">
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+            <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-blue-600/20 blur-[120px]" />
+            <div className="relative z-10 flex flex-col items-center">
+                <Loader2 size={48} className="animate-spin text-blue-500 mb-6" />
+                <p className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 animate-pulse">
+                    {isLoadingAuth ? 'Initializing System' : 'Configuring Workspace'}
+                </p>
+            </div>
         </div>
     );
   }
 
-  // 2. MISSING PROFILE STATE (Role Selection)
-  // If we have a user but no profile, ask them who they are.
+  // 2. MISSING PROFILE STATE (Role Selection - Polished UI)
   if (currentUser && !userProfile) {
       return (
-          <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white p-6">
-              <div className="max-w-md w-full text-center">
-                  <h1 className="text-3xl font-black mb-2">Welcome to MedAssist</h1>
-                  <p className="text-slate-400 mb-8">Please select your role to continue setting up your account.</p>
+          <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white p-6 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-black"></div>
+              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay" />
+              
+              {/* Background Glows */}
+              <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-600/10 blur-[100px] rounded-full" />
+              <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-600/10 blur-[100px] rounded-full" />
+
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="relative z-10 w-full max-w-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-8 md:p-12 rounded-3xl shadow-2xl"
+              >
+                  <div className="text-center mb-10">
+                      <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 mb-4 shadow-lg shadow-blue-500/30">
+                          <span className="font-black italic text-xl">M</span>
+                      </div>
+                      <h1 className="text-3xl font-bold mb-2">Welcome to MedAssist</h1>
+                      <p className="text-slate-400">Please select your primary role to configure your workspace.</p>
+                  </div>
                   
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Doctor Option */}
                       <button 
                         onClick={() => handleRoleSelection('doctor')}
-                        className="p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-blue-500 hover:bg-slate-800 transition-all group flex flex-col items-center"
+                        className="group relative p-6 rounded-2xl bg-slate-900/50 border border-slate-700 hover:border-indigo-500 hover:bg-indigo-900/20 transition-all duration-300 flex flex-col items-center text-center overflow-hidden"
                       >
-                          <div className="p-4 bg-blue-500/10 rounded-full mb-4 text-blue-500 group-hover:scale-110 transition-transform">
+                          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-indigo-500">
+                              <CheckCircle2 size={20} />
+                          </div>
+                          <div className="w-16 h-16 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-500 mb-4 group-hover:scale-110 transition-transform duration-300 border border-indigo-500/20">
                               <Stethoscope size={32} />
                           </div>
-                          <h3 className="font-bold text-lg">I am a Doctor</h3>
-                          <p className="text-xs text-slate-500 mt-2">Access diagnostics, patient records, and tools.</p>
+                          <h3 className="font-bold text-lg text-white group-hover:text-indigo-400 transition-colors">I am a Doctor</h3>
+                          <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                              Full access to diagnostics, patient management, and inventory tools.
+                          </p>
                       </button>
 
+                      {/* Patient Option */}
                       <button 
                         onClick={() => handleRoleSelection('patient')}
-                        className="p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-green-500 hover:bg-slate-800 transition-all group flex flex-col items-center"
+                        className="group relative p-6 rounded-2xl bg-slate-900/50 border border-slate-700 hover:border-blue-500 hover:bg-blue-900/20 transition-all duration-300 flex flex-col items-center text-center overflow-hidden"
                       >
-                          <div className="p-4 bg-green-500/10 rounded-full mb-4 text-green-500 group-hover:scale-110 transition-transform">
+                          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-blue-500">
+                              <CheckCircle2 size={20} />
+                          </div>
+                          <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 mb-4 group-hover:scale-110 transition-transform duration-300 border border-blue-500/20">
                               <User size={32} />
                           </div>
-                          <h3 className="font-bold text-lg">I am a Patient</h3>
-                          <p className="text-xs text-slate-500 mt-2">View health records, appointments, and results.</p>
+                          <h3 className="font-bold text-lg text-white group-hover:text-blue-400 transition-colors">I am a Patient</h3>
+                          <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                              View your personal health records, prescriptions, and schedule appointments.
+                          </p>
                       </button>
                   </div>
 
-                  <button onClick={handleLogout} className="mt-8 text-slate-500 text-xs hover:text-white transition-colors underline">
-                      Log Out
-                  </button>
-              </div>
+                  <div className="mt-10 text-center border-t border-white/5 pt-6">
+                      <p className="text-slate-500 text-xs mb-3">Logged in as {currentUser.email}</p>
+                      <button onClick={handleLogout} className="text-slate-400 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors hover:underline">
+                          Sign Out
+                      </button>
+                  </div>
+              </motion.div>
           </div>
       );
   }
@@ -395,16 +448,59 @@ const App: React.FC = () => {
                         {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
                       </button>
 
-                      {/* Bell Notification */}
-                      <button className={`p-1.5 rounded-full transition-colors relative ${isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                        <Bell size={16} className={isDarkMode ? 'text-slate-300' : 'text-slate-600'} />
-                        {unreadMessageCount > 0 && (
-                            <span className="absolute top-0 right-0 flex h-2.5 w-2.5">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border-2 border-white dark:border-black"></span>
-                            </span>
-                        )}
-                      </button>
+                      {/* Bell Notification - UPDATED */}
+                      <div className="relative" ref={notifRef}>
+                          <button 
+                            onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                            className={`p-1.5 rounded-full transition-colors relative ${isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+                          >
+                            <Bell size={16} className={isDarkMode ? 'text-slate-300' : 'text-slate-600'} />
+                            {unreadData.count > 0 && (
+                                <span className="absolute top-0 right-0 flex h-2.5 w-2.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border-2 border-white dark:border-black"></span>
+                                </span>
+                            )}
+                          </button>
+
+                          <AnimatePresence>
+                              {isNotificationsOpen && (
+                                  <motion.div 
+                                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                      className={`absolute top-full right-0 mt-2 w-72 rounded-2xl shadow-2xl border overflow-hidden z-50 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}
+                                  >
+                                      <div className={`p-3 border-b flex justify-between items-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+                                          <h4 className={`text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Notifications</h4>
+                                          <button onClick={() => setIsNotificationsOpen(false)}><X size={14} className="opacity-50 hover:opacity-100"/></button>
+                                      </div>
+                                      <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                                          {unreadData.count === 0 ? (
+                                              <div className="p-6 text-center opacity-50 flex flex-col items-center">
+                                                  <Bell size={24} className="mb-2 text-slate-400"/>
+                                                  <p className="text-xs font-bold">No new messages</p>
+                                              </div>
+                                          ) : (
+                                              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                  {unreadData.items.map((item, idx) => (
+                                                      <div key={idx} className={`p-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group`} onClick={() => { setIsNotificationsOpen(false); setCurrentView('dashboard'); }}>
+                                                          <div className="flex justify-between items-start mb-1">
+                                                              <span className={`text-xs font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>{item.senderName}</span>
+                                                              <span className="text-[9px] opacity-50">{item.time ? new Date(item.time.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Now'}</span>
+                                                          </div>
+                                                          <p className={`text-[10px] line-clamp-2 ${isDarkMode ? 'text-slate-400 group-hover:text-slate-200' : 'text-slate-500 group-hover:text-slate-700'}`}>
+                                                              {item.text}
+                                                          </p>
+                                                      </div>
+                                                  ))}
+                                              </div>
+                                          )}
+                                      </div>
+                                  </motion.div>
+                              )}
+                          </AnimatePresence>
+                      </div>
                       
                       {/* DOCTOR PROFILE SECTION */}
                       <div 

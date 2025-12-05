@@ -94,43 +94,53 @@ export const checkAndAutoLinkPatient = async (currentUser: User, userProfile: Us
 // --- LINK PATIENT TO DOCTOR (Manual by Patient Settings) ---
 export const linkPatientToDoctor = async (patientProfile: UserProfile, doctorEmail: string) => {
     try {
-        // 1. Find the Doctor by Email
+        console.log("Attempting to link patient:", patientProfile.email, "to doctor:", doctorEmail);
+
+        // 1. Find the Doctor by Email in 'users' collection
         const usersRef = collection(db, USERS_COLLECTION);
-        const q = query(usersRef, where("email", "==", doctorEmail), where("role", "==", "doctor"));
+        const q = query(usersRef, where("email", "==", doctorEmail)); // Removed role check to be safer, verify later
         const querySnapshot = await getDocs(q);
 
         if (querySnapshot.empty) {
-            throw new Error("Doctor not found with this email.");
+            throw new Error("Doctor not found with this email. Please check the spelling.");
         }
 
         const doctorDoc = querySnapshot.docs[0];
         const doctorData = doctorDoc.data() as UserProfile;
+        
+        // Verify role
+        if (doctorData.role !== 'doctor') {
+             throw new Error("The email provided does not belong to a Doctor account.");
+        }
+
         const doctorUid = doctorDoc.id; 
 
         if (!doctorUid) throw new Error("Invalid doctor data: UID missing");
 
-        // 2. Update Patient's User Profile
+        // 2. Update Patient's User Profile with Doctor UID
         const patientUserRef = doc(db, USERS_COLLECTION, patientProfile.uid);
         await updateDoc(patientUserRef, {
             doctorUid: doctorUid,
             hospital: doctorData.hospital || 'Linked Clinic' 
         });
 
-        // 3. Sync with Doctor's Patient List
+        // 3. Sync with Doctor's Patient List (The 'patients' collection)
+        // Check if the doctor already has a record for this email
         const patientsRef = collection(db, COLLECTION_NAME);
         const existingPatientQ = query(patientsRef, where("email", "==", patientProfile.email), where("doctorUid", "==", doctorUid));
         const existingSnapshot = await getDocs(existingPatientQ);
 
         if (existingSnapshot.empty) {
-            // Create new record
+            // Create NEW patient record for the doctor
+            console.log("Creating new patient record for doctor...");
             await addDoc(patientsRef, {
-                uid: patientProfile.uid,
+                uid: patientProfile.uid, // Critical: Link auth UID
                 doctorUid: doctorUid,
-                name: patientProfile.displayName || 'Unknown',
+                name: patientProfile.displayName || 'New Patient',
                 email: patientProfile.email || '',
                 phone: patientProfile.phone || '',
                 address: patientProfile.location || '',
-                age: 0,
+                age: 0, // Default placeholders
                 gender: 'Other',
                 status: 'Active',
                 createdAt: serverTimestamp(),
@@ -139,18 +149,19 @@ export const linkPatientToDoctor = async (patientProfile: UserProfile, doctorEma
                 avatarUrl: patientProfile.photoURL || ''
             });
         } else {
-            // Update existing record
+            // Update EXISTING record (e.g. Doctor added email manually before)
+            console.log("Updating existing patient record...");
             const docId = existingSnapshot.docs[0].id;
             await updateDoc(doc(db, COLLECTION_NAME, docId), {
-                uid: patientProfile.uid,
+                uid: patientProfile.uid, // Ensure auth UID is linked
                 avatarUrl: patientProfile.photoURL || '',
-                name: patientProfile.displayName || 'Unknown'
+                name: patientProfile.displayName || existingSnapshot.docs[0].data().name
             });
         }
 
         return { ...doctorData, uid: doctorUid };
     } catch (error) {
-        console.error("Linking error:", error);
+        console.error("Linking error details:", error);
         throw error;
     }
 };

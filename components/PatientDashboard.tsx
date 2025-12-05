@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserProfile, Appointment, DiagnosisRecord, ChatMessage } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X, Globe, MapPin, Camera, Loader2, Stethoscope, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X, Globe, MapPin, Camera, Loader2, Stethoscope, AlertTriangle, RefreshCw, Check } from 'lucide-react';
 import { User } from 'firebase/auth';
 import SettingsView from './SettingsView';
 import { subscribeToPatientAppointments, addAppointment } from '../services/scheduleService';
@@ -20,6 +20,12 @@ interface PatientDashboardProps {
 }
 
 type TabID = 'home' | 'records' | 'schedule' | 'chat' | 'profile';
+
+const APPOINTMENT_TYPES = [
+    "General Checkup", "Eye Pain", "Blurred Vision", "Redness", "Prescription", "Surgery Follow-up"
+];
+
+const AVAILABLE_HOURS = [8, 9, 10, 11, 13, 14, 15, 16];
 
 const TabButton = ({ id, icon: Icon, label, currentTab, setCurrentTab, isDarkMode }: { id: TabID, icon: any, label: string, currentTab: TabID, setCurrentTab: (id: TabID) => void, isDarkMode: boolean }) => (
     <button 
@@ -72,7 +78,9 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     // Add Appointment Modal
     const [isBookModalOpen, setIsBookModalOpen] = useState(false);
     const [newBookDate, setNewBookDate] = useState("");
-    const [newBookReason, setNewBookReason] = useState("");
+    const [newBookReason, setNewBookReason] = useState(""); // This is now the "Note"
+    const [selectedReasonType, setSelectedReasonType] = useState(APPOINTMENT_TYPES[0]);
+    const [selectedTimeSlot, setSelectedTimeSlot] = useState(9); // Default 9 AM
 
     // --- AUTO-LINK EFFECT ---
     useEffect(() => {
@@ -199,21 +207,25 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         e.preventDefault();
         if (!newBookDate || !currentUser) return;
         
+        const finalTitle = newBookReason ? `${selectedReasonType}: ${newBookReason}` : selectedReasonType;
+
         try {
             await addAppointment({
                 patientId: currentUser.uid,
                 patientName: userProfile?.displayName || currentUser.displayName || "Patient",
-                title: newBookReason || "General Checkup",
+                title: finalTitle,
                 type: 'Consult',
                 date: newBookDate,
-                startTime: 9, 
+                startTime: selectedTimeSlot, 
                 duration: 1,
-                status: 'Pending'
+                status: 'Pending',
+                notes: newBookReason
             });
             alert(language === 'vi' ? "Yêu cầu đã gửi thành công! Bác sĩ sẽ xác nhận sớm." : "Appointment request sent! Doctor will confirm.");
             setIsBookModalOpen(false);
             setNewBookReason("");
             setNewBookDate("");
+            setSelectedReasonType(APPOINTMENT_TYPES[0]);
         } catch (e) {
             alert("Failed to book.");
         }
@@ -237,6 +249,9 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     const latestScan = diagnosisHistory.length > 0 ? diagnosisHistory[0] : null;
     const heroBackground = userProfile?.bannerURL || "https://images.unsplash.com/photo-1519681393798-38e43269d877?q=80&w=2070&auto=format&fit=crop";
     
+    // Get today's date for min attribute
+    const todayStr = new Date().toISOString().split('T')[0];
+
     return (
         <div className={`h-screen w-full flex flex-col ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'} font-sans`}>
             
@@ -605,20 +620,120 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                 {isBookModalOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                         <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={() => setIsBookModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-                        <motion.div initial={{y:20, opacity:0}} animate={{y:0, opacity:1}} exit={{y:20, opacity:0}} className={`relative w-full max-w-sm p-6 rounded-3xl ${isDarkMode ? 'bg-slate-900' : 'bg-white'} shadow-2xl`}>
-                            <h3 className="text-lg font-black mb-4">{t.patientDashboard.book_new}</h3>
-                            <form onSubmit={handleBookAppointment} className="space-y-4">
+                        <motion.div 
+                            initial={{y:20, opacity:0}} animate={{y:0, opacity:1}} exit={{y:20, opacity:0}} 
+                            className={`relative w-full max-w-sm max-h-[85vh] overflow-y-auto p-6 rounded-3xl ${isDarkMode ? 'bg-slate-900 border border-slate-800' : 'bg-white border border-slate-100'} shadow-2xl custom-scrollbar`}
+                        >
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-black">{t.patientDashboard.book_new}</h3>
+                                <button onClick={() => setIsBookModalOpen(false)} className={`p-1.5 rounded-full ${isDarkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
+                                    <X size={20}/>
+                                </button>
+                            </div>
+                            
+                            <form onSubmit={handleBookAppointment} className="space-y-6">
+                                {/* 1. Reason Selection */}
                                 <div>
-                                    <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Reason</label>
-                                    <input required value={newBookReason} onChange={e => setNewBookReason(e.target.value)} className="w-full p-3 rounded-xl border outline-none bg-transparent text-sm" placeholder="Checkup..."/>
+                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Reason for Visit</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {APPOINTMENT_TYPES.map((type) => (
+                                            <button
+                                                key={type}
+                                                type="button"
+                                                onClick={() => setSelectedReasonType(type)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                                    selectedReasonType === type 
+                                                    ? 'bg-blue-600 text-white border-blue-600' 
+                                                    : `${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'}`
+                                                }`}
+                                            >
+                                                {type}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
+
+                                {/* 2. Date Selection */}
                                 <div>
-                                    <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Date</label>
-                                    <input required type="date" value={newBookDate} onChange={e => setNewBookDate(e.target.value)} className="w-full p-3 rounded-xl border outline-none bg-transparent text-sm"/>
+                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Preferred Date</label>
+                                    
+                                    {/* NEW: Quick Date Chips */}
+                                    <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+                                        {[
+                                            { label: language === 'vi' ? 'Ngày mai' : 'Tomorrow', days: 1 },
+                                            { label: language === 'vi' ? '3 ngày tới' : 'In 3 Days', days: 3 },
+                                            { label: language === 'vi' ? 'Tuần tới' : 'Next Week', days: 7 }
+                                        ].map((opt) => (
+                                             <button
+                                                key={opt.label}
+                                                type="button"
+                                                onClick={() => {
+                                                    const d = new Date();
+                                                    d.setDate(d.getDate() + opt.days);
+                                                    setNewBookDate(d.toISOString().split('T')[0]);
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all whitespace-nowrap ${isDarkMode ? 'border-slate-700 hover:bg-slate-800 text-slate-400' : 'border-slate-200 hover:bg-slate-100 text-slate-500'}`}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className={`relative flex items-center p-3 rounded-xl border ${isDarkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-200'} focus-within:border-blue-500 transition-colors`}>
+                                        <Calendar size={16} className={`mr-3 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}/>
+                                        <input 
+                                            required 
+                                            type="date" 
+                                            min={todayStr}
+                                            value={newBookDate} 
+                                            onChange={e => setNewBookDate(e.target.value)} 
+                                            className={`w-full bg-transparent outline-none text-sm font-bold ${isDarkMode ? 'text-white [&::-webkit-calendar-picker-indicator]:invert' : 'text-slate-900'}`}
+                                        />
+                                    </div>
+                                    <p className="text-[9px] text-slate-500 mt-2 ml-1">
+                                        {language === 'vi' ? 'Nhập ngày (ngày/tháng/năm) hoặc chọn biểu tượng lịch.' : 'Type date (DD/MM/YYYY) or tap icon to pick.'}
+                                    </p>
                                 </div>
-                                <button type="submit" className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl uppercase text-xs tracking-widest mt-2 hover:bg-blue-700">Submit Request</button>
+
+                                {/* 3. Time Selection */}
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Available Slot</label>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {AVAILABLE_HOURS.map((hour) => (
+                                            <button
+                                                key={hour}
+                                                type="button"
+                                                onClick={() => setSelectedTimeSlot(hour)}
+                                                className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center transition-all ${
+                                                    selectedTimeSlot === hour 
+                                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' 
+                                                    : `${isDarkMode ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`
+                                                }`}
+                                            >
+                                                {hour}:00
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* 4. Notes */}
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Additional Notes</label>
+                                    <textarea 
+                                        value={newBookReason} 
+                                        onChange={e => setNewBookReason(e.target.value)} 
+                                        className={`w-full p-3 rounded-xl border outline-none text-sm min-h-[80px] ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-blue-500' : 'bg-slate-50 border-slate-200 focus:border-blue-500'}`} 
+                                        placeholder="Describe symptoms..."
+                                    />
+                                </div>
+
+                                <button 
+                                    type="submit" 
+                                    className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl uppercase text-xs tracking-widest shadow-lg shadow-blue-600/30 hover:brightness-110 hover:scale-[1.02] transition-all flex items-center justify-center"
+                                >
+                                    Confirm Request <Check size={16} className="ml-2"/>
+                                </button>
                             </form>
-                            <button onClick={() => setIsBookModalOpen(false)} className="absolute top-4 right-4 text-slate-500"><X size={20}/></button>
                         </motion.div>
                     </div>
                 )}

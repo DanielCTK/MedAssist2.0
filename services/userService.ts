@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, updateDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, deleteDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { User } from "firebase/auth";
 import { UserProfile } from "../types";
@@ -80,6 +80,16 @@ export const updateUserProfile = async (uid: string, data: Partial<UserProfile>)
         await updateDoc(userRef, cleanData);
     } catch (error) {
         console.error("Error updating profile:", error);
+        throw error;
+    }
+};
+
+// --- DELETE USER PROFILE ---
+export const deleteUserProfile = async (uid: string) => {
+    try {
+        await deleteDoc(doc(db, COLLECTION_NAME, uid));
+    } catch (error) {
+        console.error("Error deleting user profile:", error);
         throw error;
     }
 };
