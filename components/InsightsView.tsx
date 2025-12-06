@@ -92,7 +92,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
     const activeCount = patients.filter(p => p.status === 'Active').length;
 
     return (
-        <div className="h-full overflow-y-auto custom-scrollbar p-4 md:p-6 space-y-6">
+        <div className="h-full overflow-y-auto custom-scrollbar p-4 md:p-6 space-y-6 pb-24">
             <h1 className={`text-2xl font-black uppercase tracking-tight mb-6 ${textMain}`}>System Insights</h1>
 
             {/* Summary Cards */}

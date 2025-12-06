@@ -233,6 +233,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
   const [isDarkMode, setIsDarkMode] = useState(false); 
   const [isHeroExpanded, setIsHeroExpanded] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   
   // Use global language context
   const { language, setLanguage } = useLanguage();
@@ -241,10 +242,18 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
 
   useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 1024); // lg breakpoint
+    handleResize(); 
+    window.addEventListener('resize', handleResize);
+    
     const timer = setInterval(() => {
         setCurrentSlide((prev) => (prev + 1) % sliderImages.length);
     }, 4000);
-    return () => clearInterval(timer);
+    
+    return () => {
+        clearInterval(timer);
+        window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % sliderImages.length);
@@ -499,7 +508,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             className="absolute right-0 top-0 bottom-0 z-30 overflow-hidden cursor-pointer"
             initial={false}
             animate={{ 
-                width: isHeroExpanded ? '55%' : '100%',
+                // Responsive width logic: 
+                // - Mobile: Expanded = 0% (Show full text), Collapsed = 100% (Show video)
+                // - Desktop: Expanded = 55% (Split screen), Collapsed = 100% (Show video)
+                width: isHeroExpanded ? (isMobile ? '0%' : '55%') : '100%',
+                opacity: isHeroExpanded && isMobile ? 0 : 1 // Hide overlay opacity on mobile expand to prevent interaction
             }}
             transition={{ type: "spring", stiffness: 40, damping: 15 }}
             onClick={() => setIsHeroExpanded(!isHeroExpanded)}

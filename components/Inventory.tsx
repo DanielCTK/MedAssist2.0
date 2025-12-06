@@ -196,18 +196,22 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className={`fixed inset-0 top-12 md:left-52 z-30 overflow-hidden flex flex-col ${isDarkMode ? 'bg-black' : 'bg-slate-50'}`}
+                // UPDATED LAYOUT CLASS: Full screen on mobile (left-0, bottom-16), offset on desktop (left-52, bottom-0)
+                className={`fixed inset-0 top-12 left-0 bottom-16 md:bottom-0 md:left-52 z-30 overflow-hidden flex flex-col ${isDarkMode ? 'bg-black' : 'bg-slate-50'}`}
             >
                 {/* Header & Filter Bar */}
-                <div className={`px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 ${isDarkMode ? 'bg-slate-900/50' : 'bg-white/50'} backdrop-blur-sm border-b ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-                    <div className="flex items-center gap-3">
+                <div className={`px-4 md:px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 ${isDarkMode ? 'bg-slate-900/50' : 'bg-white/50'} backdrop-blur-sm border-b ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
+                    <div className="flex items-center gap-3 w-full md:w-auto">
                         <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-600'}`}>
                             <Store size={20} />
                         </div>
-                        <h1 className={`text-xl font-bold uppercase tracking-tight ${textMain}`}>{t.inventory.title}</h1>
+                        <h1 className={`text-lg md:text-xl font-bold uppercase tracking-tight ${textMain}`}>{t.inventory.title}</h1>
+                        <button onClick={() => setIsAddMode(true)} className={`ml-auto md:hidden p-2 rounded-full ${bgAccent} text-white shadow-lg`}>
+                            <Plus size={18} />
+                        </button>
                     </div>
 
-                    <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto custom-scrollbar">
+                    <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto custom-scrollbar pb-2 md:pb-0">
                         {['All', 'General', 'Meds', 'Device', 'Drops', 'Protection'].map(cat => (
                             <button
                                 key={cat}
@@ -223,7 +227,7 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
                         ))}
                     </div>
 
-                    <div className="flex gap-2 w-full md:w-auto">
+                    <div className="flex gap-2 w-full md:w-auto hidden md:flex">
                         <div className={`flex items-center px-4 py-2 rounded-full border flex-1 md:w-64 ${isDarkMode ? 'bg-slate-950 border-slate-700' : 'bg-white border-slate-200'}`}>
                             <Search size={14} className={textSub} />
                             <input 
@@ -241,7 +245,7 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
                 </div>
 
                 {/* Main Product Grid */}
-                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar pb-24">
                     {/* Demo Warning */}
                     {isDemoMode && (
                         <div className="mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between">
@@ -249,12 +253,9 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
                                 <AlertTriangle className="text-amber-500" />
                                 <div>
                                     <h4 className="text-sm font-bold text-amber-500 uppercase">Preview Mode</h4>
-                                    <p className={`text-xs ${textSub}`}>Using local demo data. Backend sync unavailable or restricted.</p>
+                                    <p className={`text-xs ${textSub}`}>Using local demo data.</p>
                                 </div>
                             </div>
-                            <button onClick={handleSeedData} disabled={true} className="px-4 py-2 bg-amber-500/50 text-white/50 cursor-not-allowed rounded-lg text-xs font-bold uppercase">
-                                Initialize DB
-                            </button>
                         </div>
                     )}
 
@@ -266,7 +267,7 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
                             <p className="text-sm font-bold uppercase tracking-widest text-slate-500">No items found</p>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6 pb-24">
+                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
                             {filteredProducts.map(item => {
                                 const isJustAdded = justAddedId === item.id;
                                 return (
@@ -287,20 +288,20 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
                                             </div>
                                         </div>
 
-                                        <div className="p-4 flex flex-col flex-1">
+                                        <div className="p-3 md:p-4 flex flex-col flex-1">
                                             <div className="flex justify-between items-start mb-2">
-                                                <h3 className={`font-bold text-sm ${textMain} line-clamp-1`} title={item.name}>{item.name}</h3>
+                                                <h3 className={`font-bold text-xs md:text-sm ${textMain} line-clamp-1`} title={item.name}>{item.name}</h3>
                                             </div>
                                             <div className="flex justify-between items-end mt-auto">
                                                 <div>
-                                                    <p className={`text-[10px] font-bold uppercase tracking-wide ${textSub} mb-0.5`}>Stock: {item.stock}</p>
-                                                    <p className={`text-lg font-black ${accentColor}`}>{item.price}</p>
+                                                    <p className={`text-[9px] font-bold uppercase tracking-wide ${textSub} mb-0.5`}>Stock: {item.stock}</p>
+                                                    <p className={`text-sm md:text-lg font-black ${accentColor}`}>{item.price}</p>
                                                 </div>
                                                 <motion.button
                                                     whileTap={{ scale: 0.9 }}
                                                     onClick={() => addToCart(item)}
                                                     disabled={item.stock <= 0}
-                                                    className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-colors ${
+                                                    className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center shadow-lg transition-colors ${
                                                         item.stock <= 0 
                                                         ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed' 
                                                         : isJustAdded 
@@ -308,7 +309,7 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
                                                             : `${bgAccent} text-white hover:brightness-110`
                                                     }`}
                                                 >
-                                                    {isJustAdded ? <Check size={18} /> : <Plus size={18} />}
+                                                    {isJustAdded ? <Check size={16} /> : <Plus size={16} />}
                                                 </motion.button>
                                             </div>
                                         </div>
@@ -326,23 +327,24 @@ const Inventory: React.FC<InventoryProps> = ({ isDarkMode, isFullPageView }) => 
             Always visible, handles side drawer
            ================================================================================= */}
         
-        {/* Floating Trigger Button */}
+        {/* Floating Trigger Button - Positioned higher on mobile to clear nav bar AND stack above/below Chatbot */}
+        {/* Chatbot is at bottom-20 right-4. Let's put this at bottom-36 right-4 on mobile */}
         <motion.button
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
             onClick={() => setIsCartOpen(true)}
-            className={`fixed bottom-6 right-24 z-[60] p-4 rounded-full shadow-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-center transition-all border border-white/20`}
+            className={`fixed bottom-36 right-4 md:bottom-6 md:right-24 z-[60] p-3 md:p-4 rounded-full shadow-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-center transition-all border border-white/20`}
         >
             <div className="absolute inset-0 bg-white opacity-20 rounded-full animate-ping"></div>
-            <ShoppingCart size={24} />
+            <ShoppingCart size={20} className="md:w-6 md:h-6" />
             {cart.length > 0 && (
                 <motion.span 
                     key={cart.length}
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className="absolute -top-1 -right-1 w-6 h-6 bg-red-600 rounded-full text-[10px] font-bold flex items-center justify-center border-2 border-slate-900 shadow-sm"
+                    className="absolute -top-1 -right-1 w-5 h-5 md:w-6 md:h-6 bg-red-600 rounded-full text-[9px] md:text-[10px] font-bold flex items-center justify-center border-2 border-slate-900 shadow-sm"
                 >
                     {cart.reduce((a,b) => a + b.quantity, 0)}
                 </motion.span>

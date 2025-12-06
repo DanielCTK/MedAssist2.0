@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope, CheckCircle2, MessageCircle, X } from 'lucide-react';
+import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope, CheckCircle2, MessageCircle, X, LayoutDashboard, Users, Eye, Package, Settings, LogOut } from 'lucide-react';
 
 // Relative imports for components in the same directory
 import Sidebar from './Sidebar';
@@ -242,6 +242,42 @@ const App: React.FC = () => {
     duration: 0.4
   } as const;
 
+  // Mobile Bottom Navigation Component
+  const MobileBottomNav = () => (
+      <nav className={`md:hidden fixed bottom-0 left-0 w-full z-40 border-t pb-safe ${isDarkMode ? 'bg-black/90 border-slate-900 text-slate-400' : 'bg-white/90 border-slate-200 text-slate-500'} backdrop-blur-lg`}>
+          <div className="flex justify-around items-center h-16">
+              {[
+                  { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
+                  { id: 'patients', icon: Users, label: 'Patients' },
+                  { id: 'diagnosis', icon: Eye, label: 'Scan' },
+                  { id: 'inventory', icon: Package, label: 'Meds' },
+                  { id: 'history', icon: Activity, label: 'Stats' },
+              ].map(item => {
+                  const isActive = currentView === item.id;
+                  return (
+                      <button 
+                        key={item.id}
+                        onClick={() => setCurrentView(item.id)}
+                        className={`flex flex-col items-center justify-center w-full h-full transition-colors ${isActive ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : ''}`}
+                      >
+                          <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                          <span className="text-[10px] font-bold mt-1">{item.label}</span>
+                      </button>
+                  )
+              })}
+              
+              {/* Logout Button */}
+              <button 
+                onClick={handleLogout}
+                className={`flex flex-col items-center justify-center w-full h-full transition-colors text-red-500 hover:text-red-600`}
+              >
+                  <LogOut size={20} />
+                  <span className="text-[10px] font-bold mt-1">Exit</span>
+              </button>
+          </div>
+      </nav>
+  );
+
   // 1. GLOBAL LOADING STATE
   if (isLoadingAuth || (currentUser && isProfileLoading)) {
     return (
@@ -262,10 +298,9 @@ const App: React.FC = () => {
   if (currentUser && !userProfile) {
       return (
           <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white p-6 relative overflow-hidden">
+              {/* ... (Existing Role Selection UI kept as is) ... */}
               <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-black"></div>
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay" />
-              
-              {/* Background Glows */}
               <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-600/10 blur-[100px] rounded-full" />
               <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-600/10 blur-[100px] rounded-full" />
 
@@ -283,7 +318,6 @@ const App: React.FC = () => {
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Doctor Option */}
                       <button 
                         onClick={() => handleRoleSelection('doctor')}
                         className="group relative p-6 rounded-2xl bg-slate-900/50 border border-slate-700 hover:border-indigo-500 hover:bg-indigo-900/20 transition-all duration-300 flex flex-col items-center text-center overflow-hidden"
@@ -300,7 +334,6 @@ const App: React.FC = () => {
                           </p>
                       </button>
 
-                      {/* Patient Option */}
                       <button 
                         onClick={() => handleRoleSelection('patient')}
                         className="group relative p-6 rounded-2xl bg-slate-900/50 border border-slate-700 hover:border-blue-500 hover:bg-blue-900/20 transition-all duration-300 flex flex-col items-center text-center overflow-hidden"
@@ -329,7 +362,7 @@ const App: React.FC = () => {
       );
   }
 
-  // 3. PATIENT INTERFACE (Instant Switch based on Role)
+  // 3. PATIENT INTERFACE
   if (currentUser && userProfile?.role === 'patient') {
       return (
           <PatientDashboard 
@@ -342,7 +375,7 @@ const App: React.FC = () => {
       );
   }
 
-  // 4. DOCTOR INTERFACE
+  // 4. DOCTOR INTERFACE (Responsive Layout)
   return (
     <div className={`h-screen w-full font-sans overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <AnimatePresence mode="wait">
@@ -361,42 +394,55 @@ const App: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.8 }}
-            className="flex h-full w-full"
+            className="flex h-full w-full relative"
           >
-            <Sidebar 
-                currentView={currentView} 
-                setView={setCurrentView} 
-                isDarkMode={isDarkMode} 
-                onLogout={handleLogout}
-            />
+            {/* Desktop Sidebar: Hidden on Mobile */}
+            <div className="hidden md:flex h-full fixed left-0 top-0 bottom-0 z-30">
+                <Sidebar 
+                    currentView={currentView} 
+                    setView={setCurrentView} 
+                    isDarkMode={isDarkMode} 
+                    onLogout={handleLogout}
+                />
+            </div>
             
-            <main className="flex-1 ml-52 h-full relative flex flex-col">
+            {/* Mobile Bottom Navigation */}
+            <MobileBottomNav />
+            
+            {/* Main Content Area */}
+            <main className={`flex-1 h-full relative flex flex-col w-full md:ml-52 md:w-[calc(100%-13rem)] pb-16 md:pb-0 transition-all duration-300`}>
                {/* TOP HEADER BAR */}
-               <header className={`h-12 px-5 flex items-center justify-between border-b transition-colors z-20 ${isDarkMode ? 'bg-black/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+               <header className={`h-12 px-4 md:px-5 flex items-center justify-between border-b transition-colors z-20 ${isDarkMode ? 'bg-black/80 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center">
                     <h2 className="text-xs font-bold uppercase tracking-wider opacity-70 flex items-center">
                         <span className={`w-1.5 h-1.5 rounded-full mr-2 animate-pulse ${isDarkMode ? 'bg-red-500' : 'bg-blue-600'}`}></span>
-                        {currentView === 'dashboard' && t.sidebar.dashboard}
-                        {currentView === 'patients' && t.sidebar.patients}
-                        {currentView === 'diagnosis' && t.sidebar.diagnosis}
-                        {currentView === 'history' && t.sidebar.insights}
-                        {currentView === 'settings' && t.sidebar.settings}
-                        {currentView === 'inventory' && t.sidebar.pharmacy}
+                        <span className="truncate max-w-[120px] md:max-w-none">
+                            {currentView === 'dashboard' && t.sidebar.dashboard}
+                            {currentView === 'patients' && t.sidebar.patients}
+                            {currentView === 'diagnosis' && t.sidebar.diagnosis}
+                            {currentView === 'history' && t.sidebar.insights}
+                            {currentView === 'settings' && t.sidebar.settings}
+                            {currentView === 'inventory' && t.sidebar.pharmacy}
+                        </span>
                     </h2>
                   </div>
 
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2 md:space-x-3">
                       {/* GLOBAL SEARCH BAR */}
                       <div className="relative" ref={searchRef}>
-                          <div className={`hidden md:flex items-center px-2.5 py-1 rounded-full border ${isDarkMode ? 'bg-slate-900 border-slate-800 focus-within:border-red-500' : 'bg-slate-100 border-slate-200 focus-within:border-blue-500'}`}>
-                              <Search size={12} className="opacity-50 mr-2" />
+                          <div className={`flex items-center px-2.5 py-1 rounded-full border transition-all ${isSearchOpen ? 'w-40 md:w-64' : 'w-8 md:w-64 border-transparent md:border-slate-200'} ${isDarkMode ? 'bg-slate-900 border-slate-800 focus-within:border-red-500' : 'bg-slate-100 border-slate-200 focus-within:border-blue-500'}`}>
+                              <Search 
+                                size={12} 
+                                className={`opacity-50 ${isSearchOpen ? 'mr-2' : ''} cursor-pointer md:cursor-default`} 
+                                onClick={() => setIsSearchOpen(true)}
+                              />
                               <input 
                                   type="text" 
                                   placeholder={t.patients.search} 
                                   value={searchQuery}
                                   onChange={(e) => { setSearchQuery(e.target.value); setIsSearchOpen(true); }}
                                   onFocus={() => setIsSearchOpen(true)}
-                                  className={`bg-transparent border-none outline-none text-[10px] w-40 font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                                  className={`bg-transparent border-none outline-none text-[10px] font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'} ${isSearchOpen ? 'w-full block' : 'w-full hidden md:block'}`}
                               />
                           </div>
 
@@ -435,7 +481,7 @@ const App: React.FC = () => {
                       {/* Language Toggle */}
                       <button 
                         onClick={() => setLanguage(language === 'en' ? 'vi' : 'en')}
-                        className={`p-1.5 rounded-full transition-colors flex items-center justify-center space-x-1 w-10 ${isDarkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-600'}`}
+                        className={`p-1.5 rounded-full transition-colors flex items-center justify-center w-8 h-8 ${isDarkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-600'}`}
                       >
                          <span className="text-[10px] font-black uppercase">{language}</span>
                       </button>
@@ -443,22 +489,22 @@ const App: React.FC = () => {
                       {/* Theme Toggle */}
                       <button 
                         onClick={() => setIsDarkMode(!isDarkMode)}
-                        className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-slate-800 text-yellow-400' : 'hover:bg-slate-100 text-slate-600'}`}
+                        className={`p-1.5 rounded-full transition-colors w-8 h-8 flex items-center justify-center ${isDarkMode ? 'hover:bg-slate-800 text-yellow-400' : 'hover:bg-slate-100 text-slate-600'}`}
                       >
                         {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
                       </button>
 
-                      {/* Bell Notification - UPDATED */}
+                      {/* Bell Notification */}
                       <div className="relative" ref={notifRef}>
                           <button 
                             onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                            className={`p-1.5 rounded-full transition-colors relative ${isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+                            className={`p-1.5 rounded-full transition-colors relative w-8 h-8 flex items-center justify-center ${isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
                           >
                             <Bell size={16} className={isDarkMode ? 'text-slate-300' : 'text-slate-600'} />
                             {unreadData.count > 0 && (
-                                <span className="absolute top-0 right-0 flex h-2.5 w-2.5">
+                                <span className="absolute top-1 right-1 flex h-2 w-2">
                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border-2 border-white dark:border-black"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500 border-2 border-white dark:border-black"></span>
                                 </span>
                             )}
                           </button>
@@ -471,6 +517,7 @@ const App: React.FC = () => {
                                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
                                       className={`absolute top-full right-0 mt-2 w-72 rounded-2xl shadow-2xl border overflow-hidden z-50 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}
                                   >
+                                      {/* Notification Content (Same as before) */}
                                       <div className={`p-3 border-b flex justify-between items-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
                                           <h4 className={`text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Notifications</h4>
                                           <button onClick={() => setIsNotificationsOpen(false)}><X size={14} className="opacity-50 hover:opacity-100"/></button>
@@ -524,13 +571,13 @@ const App: React.FC = () => {
                                 {userProfile?.specialty || 'Medical Staff'}
                               </p>
                           </div>
-                          <ChevronDown size={12} className={`opacity-50 transition-colors ${isDarkMode ? 'group-hover:text-red-500' : 'group-hover:text-blue-500'}`} />
+                          <ChevronDown size={12} className={`hidden lg:block opacity-50 transition-colors ${isDarkMode ? 'group-hover:text-red-500' : 'group-hover:text-blue-500'}`} />
                       </div>
                   </div>
                </header>
 
                {/* MAIN CONTENT AREA */}
-               <div className={`flex-1 overflow-y-auto custom-scrollbar relative p-3 ${isDarkMode ? 'bg-black' : 'bg-slate-50'}`}>
+               <div className={`flex-1 overflow-y-auto custom-scrollbar relative p-3 md:p-4 ${isDarkMode ? 'bg-black' : 'bg-slate-50'}`}>
                    
                    <div 
                         className="absolute inset-0 pointer-events-none z-0 opacity-40 mix-blend-overlay" 
@@ -540,6 +587,7 @@ const App: React.FC = () => {
                         }}
                    />
 
+                   {/* Ambient Backgrounds */}
                    {isDarkMode ? (
                        <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
                            <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-red-900/10 blur-[100px]" />
@@ -571,7 +619,7 @@ const App: React.FC = () => {
                    </AnimatePresence>
                    
                    {/* Persistent Global Widgets */}
-                   {/* Inventory now handles both the Full Page View (when route matches) and the global Cart Button */}
+                   {/* Inventory handles full page logic internally based on prop, but we render it always to support the FAB */}
                    <Inventory isDarkMode={isDarkMode} isFullPageView={currentView === 'inventory'} />
                    <AIChatbot />
                </div>
