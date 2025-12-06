@@ -2,19 +2,18 @@ import { AnalysisResult, DRGrade } from '../types';
 
 // =================================================================================
 // 🧠 AI ENGINE CONNECTION
-// Connects to your local FastAPI backend (medassist-ai-core)
+// Kết nối với backend Python (medassist-ai-core) chứa model Keras của bạn
 // =================================================================================
 
-const API_URL = "http://localhost:8000/predict"; // URL mặc định của FastAPI/Uvicorn
+// Lấy URL từ biến môi trường hoặc dùng mặc định
+const API_URL = import.meta.env.VITE_API_URL 
+    ? `${import.meta.env.VITE_API_URL}/predict` 
+    : "http://localhost:8000/predict";
 
-export interface EnhancedAnalysisResult extends AnalysisResult {
-    // Advice is handled via translations
-}
+export const analyzeImageWithLocalModel = async (file: File | null, gradeOverride?: DRGrade): Promise<AnalysisResult> => {
+  console.log("Đang gửi ảnh tới AI Core...", file?.name);
 
-export const analyzeImageWithLocalModel = async (file: File | null, gradeOverride?: DRGrade): Promise<EnhancedAnalysisResult> => {
-  console.log("Processing image...", file?.name);
-
-  // 1. Simulation Override (Testing Mode)
+  // 1. Chế độ Test nhanh (Nếu dev muốn override kết quả)
   if (gradeOverride !== undefined) {
       return new Promise((resolve) => {
           setTimeout(() => {
@@ -28,11 +27,11 @@ export const analyzeImageWithLocalModel = async (file: File | null, gradeOverrid
       });
   }
 
-  // 2. REAL AI CALL (FastAPI)
+  // 2. GỌI REAL MODEL (Model Keras của bạn qua API)
   if (file) {
       try {
           const formData = new FormData();
-          formData.append("file", file);
+          formData.append("file", file); // Key 'file' phải khớp với bên Python
 
           const startTime = performance.now();
           
@@ -43,49 +42,31 @@ export const analyzeImageWithLocalModel = async (file: File | null, gradeOverrid
           });
 
           if (!response.ok) {
-              throw new Error(`API Error: ${response.statusText}`);
+              throw new Error(`Lỗi kết nối AI Core: ${response.statusText}`);
           }
 
+          // Giả sử Python trả về JSON: { "prediction": 2, "confidence": 0.85, "heatmap": "base64..." }
           const data = await response.json();
           const endTime = performance.now();
 
-          console.log("AI Result:", data);
+          console.log("Kết quả từ Keras Model:", data);
 
           // Map response từ Python về Typescript
+          // Bạn cần đảm bảo Python trả về đúng key 'prediction' hoặc 'grade'
           return {
-              grade: data.grade as DRGrade, // Đảm bảo Python trả về int 0-4
-              confidence: data.confidence,  // Đảm bảo Python trả về float 0.0-1.0
+              grade: (data.prediction !== undefined ? data.prediction : data.grade) as DRGrade, 
+              confidence: data.confidence || 0.95,  
+              heatmapUrl: data.heatmap || undefined, // Nếu model trả về heatmap
               processingTime: (endTime - startTime) / 1000,
               timestamp: new Date().toISOString()
           };
 
       } catch (error) {
-          console.warn("⚠️ Không kết nối được với AI Core (FastAPI). Đang chuyển sang chế độ Mô phỏng.", error);
-          // Fallthrough to simulation below
+          console.error("⚠️ Không kết nối được với AI Core (Python).", error);
+          alert("Không thể kết nối với Server AI (medassist-ai-core). Vui lòng kiểm tra server Python đã bật chưa ở port 8000.");
+          throw error; 
       }
   }
 
-  // 3. FALLBACK SIMULATION (Nếu chưa bật server Python hoặc lỗi mạng)
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // Logic ngẫu nhiên (chỉ chạy khi không có Backend)
-      const rand = Math.random();
-      let simulatedGrade: DRGrade;
-      
-      if (rand > 0.9) simulatedGrade = DRGrade.Proliferative;
-      else if (rand > 0.75) simulatedGrade = DRGrade.Severe;
-      else if (rand > 0.55) simulatedGrade = DRGrade.Moderate;
-      else if (rand > 0.3) simulatedGrade = DRGrade.Mild;
-      else simulatedGrade = DRGrade.NoDR;
-
-      const simulatedConfidence = 0.85 + (Math.random() * 0.14); 
-
-      resolve({
-        grade: simulatedGrade,
-        confidence: simulatedConfidence,
-        processingTime: 1.5,
-        timestamp: new Date().toISOString()
-      });
-    }, 2000); 
-  });
+  throw new Error("Không có file ảnh được chọn.");
 };
