@@ -27,7 +27,7 @@ import { subscribeToActiveChats } from '../services/chatService';
 // ==================================================================================
 // 🖼️ ASSETS CONFIGURATION
 // ==================================================================================
-const ASANOHA_PATTERN = `data:image/svg+xml,%3Csvg width='60' height='104' viewBox='0 0 60 104' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 52L60 0M30 52L60 104M30 52L0 104M30 52L0 0M30 0L0 52M30 104L0 52M30 0L60 52M30 104L60 52M0 52h60M30 0v104' stroke='%23888888' stroke-width='1' fill='none' opacity='0.07'/%3E%3C/svg%3E`;
+const ASANOHA_PATTERN = `data:image/svg+xml,%3Csvg width='60' height='104' viewBox='0 0 60 104' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 52L60 0M30 52L60 104M30 52L0 104M30 52L0 0M30 0L0 52M30 0L60 52M30 104L0 52M30 0L60 52M30 104L60 52M0 52h60M30 0v104' stroke='%23888888' stroke-width='1' fill='none' opacity='0.07'/%3E%3C/svg%3E`;
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -619,7 +619,6 @@ const App: React.FC = () => {
                    </AnimatePresence>
                    
                    {/* Persistent Global Widgets */}
-                   {/* Inventory handles full page logic internally based on prop, but we render it always to support the FAB */}
                    <Inventory isDarkMode={isDarkMode} isFullPageView={currentView === 'inventory'} />
                    <AIChatbot />
                </div>

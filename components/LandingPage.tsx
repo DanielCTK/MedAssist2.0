@@ -310,7 +310,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             opacity: 1,
             filter: index === 1 ? 'brightness(1.1) contrast(1.1)' : 'brightness(0.7) blur(1px)',
             transformOrigin: "bottom center",
-            transition: { type: "spring", stiffness: 150, damping: 20 }
+            transition: { type: "spring" as const, stiffness: 150, damping: 20 }
         };
     },
     expanded: (index: number) => ({
@@ -323,7 +323,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
       filter: 'brightness(1) blur(0px)',
       transition: {
         delay: index * 0.1,
-        type: "spring",
+        type: "spring" as const,
         stiffness: 120,
         damping: 20
       }
