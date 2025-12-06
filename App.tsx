@@ -102,7 +102,7 @@ const App: React.FC = () => {
       const results: typeof searchResults = [];
 
       // 1. Navigation Pages
-      ['dashboard', 'patients', 'diagnosis', 'history', 'settings'].forEach(page => {
+      ['dashboard', 'patients', 'diagnosis', 'history', 'settings', 'inventory'].forEach(page => {
           if (page.includes(q)) {
               results.push({
                   type: 'Page', id: page, title: `Go to ${page.charAt(0).toUpperCase() + page.slice(1)}`,
@@ -126,7 +126,7 @@ const App: React.FC = () => {
           if (i.name.toLowerCase().includes(q)) {
               results.push({
                   type: 'Item', id: i.id, title: i.name, subtitle: `${i.stock} in stock`,
-                  action: () => {} // Inventory is now a global widget, no need to navigate
+                  action: () => setCurrentView('inventory')
               });
           }
       });
@@ -223,6 +223,7 @@ const App: React.FC = () => {
                         {currentView === 'diagnosis' && t.sidebar.diagnosis}
                         {currentView === 'history' && t.sidebar.insights}
                         {currentView === 'settings' && t.sidebar.settings}
+                        {currentView === 'inventory' && t.sidebar.pharmacy}
                     </h2>
                   </div>
 
@@ -322,62 +323,4 @@ const App: React.FC = () => {
                                 {userProfile?.specialty || 'Medical Staff'}
                               </p>
                           </div>
-                          <ChevronDown size={12} className={`opacity-50 transition-colors ${isDarkMode ? 'group-hover:text-red-500' : 'group-hover:text-blue-500'}`} />
-                      </div>
-                  </div>
-               </header>
-
-               {/* MAIN CONTENT AREA */}
-               <div className={`flex-1 overflow-y-auto custom-scrollbar relative p-3 ${isDarkMode ? 'bg-black' : 'bg-slate-50'}`}>
-                   
-                   <div 
-                        className="absolute inset-0 pointer-events-none z-0 opacity-40 mix-blend-overlay" 
-                        style={{ 
-                            backgroundImage: `url("${ASANOHA_PATTERN}")`,
-                            backgroundSize: '40px' 
-                        }}
-                   />
-
-                   {isDarkMode ? (
-                       <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-                           <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-red-900/10 blur-[100px]" />
-                           <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-red-900/5 blur-[100px]" />
-                       </div>
-                   ) : (
-                       <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-                           <div className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full bg-blue-100/40 blur-[80px]" />
-                           <div className="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full bg-sky-100/40 blur-[80px]" />
-                       </div>
-                   )}
-                   
-                   <AnimatePresence mode="wait">
-                      <motion.div
-                        key={currentView}
-                        initial="initial"
-                        animate="in"
-                        exit="out"
-                        variants={pageVariants}
-                        transition={pageTransition}
-                        className="relative z-10 h-full max-w-full mx-auto"
-                      >
-                        {currentView === 'dashboard' && <Dashboard isDarkMode={isDarkMode} currentUser={currentUser} userProfile={userProfile} setView={setCurrentView} />}
-                        {currentView === 'diagnosis' && <DiagnosisView isDarkMode={isDarkMode} />}
-                        {currentView === 'patients' && <PatientList isDarkMode={isDarkMode} />}
-                        {currentView === 'settings' && <SettingsView userProfile={userProfile} isDarkMode={isDarkMode} onProfileUpdate={setUserProfile} />}
-                        {currentView === 'history' && <InsightsView isDarkMode={isDarkMode} currentUser={currentUser} />}
-                      </motion.div>
-                   </AnimatePresence>
-                   
-                   {/* Persistent Global Widgets */}
-                   <Inventory isDarkMode={isDarkMode} />
-                   <AIChatbot />
-               </div>
-            </main>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-export default App;
+                          <ChevronDown size={12} className={`opacity-50 transition-colors ${isDarkMode ? 'group-hover:text-red-500' : 'group-hover
