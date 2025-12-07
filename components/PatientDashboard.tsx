@@ -142,13 +142,17 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         setLoading(true);
 
         // 1. SYNC APPOINTMENTS (Real-time)
-        const unsubAppt = subscribeToPatientAppointments(currentUser.uid, currentUser.email || '', (data) => {
-             setMyAppointments(data);
-        }, (err) => {
-            if (err?.code !== 'permission-denied' && !err?.message?.includes('insufficient permissions')) {
-                console.error("Appointment fetch error", err);
-            }
-        });
+        const unsubAppt = subscribeToPatientAppointments(
+                currentUser.uid, 
+                    (data) => {
+                        setMyAppointments(data);
+                    }, 
+                    (err) => {
+                        if (err?.code !== 'permission-denied' && !err?.message?.includes('insufficient permissions')) {
+                            console.error("Appointment fetch error", err);
+                        }
+                    }
+                );
 
         // 2. SYNC MEDICAL RECORDS (Real-time)
         let unsubPatientData: () => void = () => {};

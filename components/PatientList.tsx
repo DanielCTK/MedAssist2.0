@@ -76,8 +76,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
           setPatientAppointments([]);
           
           const unsubscribe = subscribeToPatientAppointments(
-              activePatient.uid || activePatient.id, // Prefer UID if linked, else ID (fallback logic depends on service)
-              activePatient.email || '',
+              activePatient.uid || activePatient.id,
               (data) => {
                   setPatientAppointments(data);
               },

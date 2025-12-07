@@ -294,7 +294,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   }, [selectedDate, currentUser]);
 
   useEffect(() => {
+      // SỬA: Truyền thêm currentUser?.uid vào vị trí đầu tiên
       const unsubscribe = subscribeToPendingAppointments(
+          currentUser?.uid, 
           (data) => {
               setPendingAppointments(data);
           },
@@ -303,7 +305,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
           }
       );
       return () => unsubscribe();
-  }, []);
+  }, [currentUser]); // Nhớ thêm currentUser vào dependency
 
       // UPDATED: Pass currentUser.uid to filter stats
  useEffect(() => {

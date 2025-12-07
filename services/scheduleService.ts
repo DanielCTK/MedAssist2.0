@@ -1,15 +1,15 @@
-
 import { db } from "./firebase";
-import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, orderBy, or } from "firebase/firestore";
+import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc } from "firebase/firestore";
 import { Appointment } from "../types";
 
 const COLLECTION_NAME = "appointments";
 
-// --- GET APPOINTMENTS FOR A SPECIFIC DATE ---
-// Updated to filter by doctorId
+// ============================================================================
+// 1. LẤY LỊCH HẸN THEO NGÀY (DÀNH CHO LỊCH LÀM VIỆC CỦA BÁC SĨ)
+// ============================================================================
 export const subscribeToAppointments = (
     dateStr: string,
-    userId: string | undefined, // Added userId param
+    userId: string | undefined,
     onData: (appointments: Appointment[]) => void,
     onError: (error: any) => void
 ) => {
@@ -22,14 +22,12 @@ export const subscribeToAppointments = (
                 ...doc.data()
             })) as Appointment[];
             
-            // Filter by Doctor ID if provided (Client-side filtering to avoid complex index requirements)
+            // Lọc theo Doctor ID (nếu có)
             if (userId) {
-                items = items.filter(item => item.doctorId === userId || !item.doctorId); // Fallback: show items without ID if legacy, but ideally strict
-                // STRICT MODE: Only show items explicitly belonging to this doctor
                 items = items.filter(item => item.doctorId === userId); 
             }
 
-            // Client-side sort by startTime
+            // Sắp xếp theo giờ tăng dần
             items.sort((a, b) => a.startTime - b.startTime);
             
             onData(items);
@@ -38,14 +36,21 @@ export const subscribeToAppointments = (
     );
 };
 
-// --- NEW: GET ALL PENDING APPOINTMENTS (INBOX MODE) ---
+// ============================================================================
+// 2. LẤY DANH SÁCH CHỜ DUYỆT (INBOX - DÀNH CHO BÁC SĨ)
+// ============================================================================
 export const subscribeToPendingAppointments = (
+    doctorId: string | undefined, // Thêm tham số này để lọc
     onData: (appointments: Appointment[]) => void,
     onError: (error: any) => void
 ) => {
+    // Nếu chưa có ID bác sĩ (ví dụ mới login chưa load xong), chưa gọi vội
+    if (!doctorId) return () => {};
+
     const q = query(
         collection(db, COLLECTION_NAME), 
-        where("status", "==", "Pending")
+        where("status", "==", "Pending"),
+        where("doctorId", "==", doctorId) // QUAN TRỌNG: Chỉ lấy khách của bác sĩ này
     );
 
     return onSnapshot(q,
@@ -54,22 +59,25 @@ export const subscribeToPendingAppointments = (
                 id: doc.id,
                 ...doc.data()
             })) as Appointment[];
-            // Sort by date created (oldest first usually, or newest)
+            
+            // Sắp xếp: Mới nhất lên đầu
+            items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            
             onData(items);
         },
         onError
     );
 };
 
-// --- SYNC: GET APPOINTMENTS FOR A SPECIFIC PATIENT (REAL-TIME) ---
+// ============================================================================
+// 3. LẤY LỊCH SỬ KHÁM (DÀNH CHO BỆNH NHÂN)
+// ============================================================================
 export const subscribeToPatientAppointments = (
     patientUid: string,
-    patientEmail: string,
+    // Bỏ tham số patientEmail thừa thãi
     onData: (appointments: Appointment[]) => void,
     onError: (error: any) => void
 ) => {
-    // Query appointments where patientId matches UID OR notes contains email (fallback linkage)
-    // Using a simpler query for stability: Fetch recent appointments
     const q = query(
         collection(db, COLLECTION_NAME), 
         where("patientId", "==", patientUid)
@@ -82,7 +90,7 @@ export const subscribeToPatientAppointments = (
                 ...doc.data()
             })) as Appointment[];
             
-            // Sort by date/time descending (newest first)
+            // Sắp xếp: Mới nhất lên đầu
             items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             
             onData(items);
@@ -91,16 +99,16 @@ export const subscribeToPatientAppointments = (
     );
 };
 
-// --- GET APPOINTMENTS FOR A DATE RANGE (FOR CHARTS) ---
-// Updated to filter by doctorId
+// ============================================================================
+// 4. LẤY LỊCH HẸN TRONG KHOẢNG THỜI GIAN (DÙNG CHO BIỂU ĐỒ THỐNG KÊ)
+// ============================================================================
 export const subscribeToAppointmentsRange = (
     startDate: string,                  // Tham số 1
     endDate: string,                    // Tham số 2
     userId: string | undefined,         // Tham số 3 (Doctor ID)
-    onData: (appointments: Appointment[]) => void, // Tham số 4 (Callback thành công)
-    onError: (error: any) => void       // Tham số 5 (Callback lỗi)
+    onData: (appointments: Appointment[]) => void, // Tham số 4
+    onError: (error: any) => void       // Tham số 5
 ) => {
-    // Firestore allows range filters on string dates (ISO format YYYY-MM-DD works perfectly)
     const q = query(
         collection(db, COLLECTION_NAME), 
         where("date", ">=", startDate),
@@ -114,7 +122,7 @@ export const subscribeToAppointmentsRange = (
                 ...doc.data()
             })) as Appointment[];
 
-            // Client-side filtering by Doctor ID
+            // Lọc theo bác sĩ
             if (userId) {
                 items = items.filter(item => item.doctorId === userId);
             }
@@ -125,7 +133,10 @@ export const subscribeToAppointmentsRange = (
     );
 };
 
-// --- ADD APPOINTMENT ---
+// ============================================================================
+// CÁC HÀM CRUD (THÊM, SỬA, XÓA)
+// ============================================================================
+
 export const addAppointment = async (appt: Omit<Appointment, "id">) => {
     try {
         await addDoc(collection(db, COLLECTION_NAME), {
@@ -138,9 +149,9 @@ export const addAppointment = async (appt: Omit<Appointment, "id">) => {
     }
 };
 
-// --- UPDATE APPOINTMENT DATA ---
 export const updateAppointment = async (id: string, data: Partial<Appointment>) => {
     try {
+        // Loại bỏ trường id nếu có lỡ lọt vào data update
         const { id: _, ...updateData } = data as any; 
         await updateDoc(doc(db, COLLECTION_NAME, id), updateData);
     } catch (error) {
@@ -149,7 +160,6 @@ export const updateAppointment = async (id: string, data: Partial<Appointment>) 
     }
 };
 
-// --- UPDATE STATUS ONLY ---
 export const updateAppointmentStatus = async (id: string, status: Appointment['status']) => {
     try {
         await updateDoc(doc(db, COLLECTION_NAME, id), { status });
@@ -159,7 +169,6 @@ export const updateAppointmentStatus = async (id: string, status: Appointment['s
     }
 };
 
-// --- DELETE APPOINTMENT ---
 export const deleteAppointment = async (id: string) => {
     try {
         await deleteDoc(doc(db, COLLECTION_NAME, id));
@@ -168,5 +177,3 @@ export const deleteAppointment = async (id: string) => {
         throw error;
     }
 };
-
-
