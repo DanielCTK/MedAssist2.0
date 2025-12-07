@@ -7,15 +7,15 @@ import { useLanguage } from '../contexts/LanguageContext';
 // ==================================================================================
 // 🖼️ ASSETS & MEDIA CONFIGURATION
 // ==================================================================================
-const landingBg = "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?q=80&w=2070&auto=format&fit=crop";
-const heroMainGif = "https://cdn.coverr.co/videos/coverr-medical-research-laboratory-5432/1080p.mp4"; 
+const landingBg = "./assets/3fb46a62467bd228cefc63500f7a6ee4.gif";
+const heroMainGif = "./assets/747af4250dd56f8047edc8a9c72a0131.gif"; 
 const SAYAGATA_PATTERN = `data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E`;
-const galleryImage1 = "https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=2070&auto=format&fit=crop";
-const galleryImage2 = "https://images.unsplash.com/photo-1579684385127-1ef15d508118?q=80&w=2080&auto=format&fit=crop";
-const galleryImage3 = "https://images.unsplash.com/photo-1530497610245-94d3c16cda48?q=80&w=1770&auto=format&fit=crop";
-const articleImage1 = "https://images.unsplash.com/photo-1579684385127-1ef15d508118?q=80&w=2080&auto=format&fit=crop";
-const articleImage2 = "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop";
-const articleImage3 = "https://images.unsplash.com/photo-1581093458791-9f3c3900df4b?q=80&w=2070&auto=format&fit=crop";
+const galleryImage1 = "./assets/962ebfa1d3757c9cbcfe03fac888e12a.gif";
+const galleryImage2 = "./assets/71e4482d08fecd57c2635d210a8b076c.gif";
+const galleryImage3 = "./assets/064417ff3af428b73bed707b55957651.gif";
+const articleImage1 = "./assets/8852467-hd_1080_1920_30fps.gif";
+const articleImage2 = "./assets/6a327caa4b5c102de396a1c3aaa20e98.gif";
+const articleImage3 = "./assets/5995131-hd_1080_1920_30fps.gif";
 
 interface LandingPageProps {
   onEnter: () => void;
@@ -55,7 +55,7 @@ const CONTENT = {
             title_1: "Who We",
             title_2: "Are",
             quote: "MedAssist is a pioneer in AI-driven ophthalmology. Founded by a team of retina specialists and deep learning engineers, our mission is to eliminate preventable blindness through accessible technology.",
-            author: "Dr. Sarah Connor, Chief of Retina",
+            author: "Nguyen Thanh Danh, SIU Student",
             desc: "We bridge the gap between biological vision and artificial intelligence, ensuring that every scan is analyzed with pixel-perfect precision."
         },
         articles: {
@@ -125,7 +125,7 @@ const CONTENT = {
             title_1: "Về",
             title_2: "Chúng Tôi",
             quote: "MedAssist là người tiên phong trong lĩnh vực nhãn khoa AI. Được thành lập bởi đội ngũ chuyên gia võng mạc và kỹ sư học sâu, sứ mệnh của chúng tôi là loại bỏ mù lòa có thể phòng ngừa.",
-            author: "Bs. Sarah Connor, Trưởng Khoa Võng Mạc",
+            author: "Nguyen Thanh Danh, Sinh Vien SIU",
             desc: "Chúng tôi thu hẹp khoảng cách giữa thị giác sinh học và trí tuệ nhân tạo, đảm bảo mọi bản quét đều được phân tích với độ chính xác tuyệt đối."
         },
         articles: {
@@ -207,25 +207,28 @@ const articles = [
     id: 1,
     category: "CLINICAL STUDY",
     title: "AI in Early Diabetic Retinopathy Screening",
-    date: "MAR 12, 2024",
+    date: "Sep-Oct 24, 2024",
     image: articleImage1,
-    summary: "A multi-center study revealing how Gemini 2.5 algorithms reduced false negatives by 45% in asymptomatic patients."
+    summary: "Diabetic retinopathy screening through artificial intelligence algorithms: a systematic review.",
+    link: "https://pubmed.ncbi.nlm.nih.gov/38885761/" // Thêm link ở đây
   },
   {
     id: 2,
     category: "TECHNOLOGY",
     title: "The Architecture of Neural Vision",
-    date: "FEB 28, 2024",
+    date: "Oct 23, 2023",
     image: articleImage2,
-    summary: "Deep dive into the CNN layers used for micro-aneurysm detection in high-resolution fundus imagery."
+    summary: "Artificial Intelligence and Diabetic Retinopathy: AI Framework, Prospective Studies",
+    link: "https://pubmed.ncbi.nlm.nih.gov/37729502/" // Thêm link ở đây
   },
   {
     id: 3,
     category: "PATIENT CARE",
     title: "Bridging the Gap in Rural Ophthalmology",
-    date: "JAN 15, 2024",
+    date: "Sep 13, 2024",
     image: articleImage3,
-    summary: "How MedAssist's offline-first capabilities are bringing specialist-grade diagnostics to remote clinics."
+    summary: "Effectiveness of artificial intelligence for diabetic retinopathy screening in VietNam",
+    link: "https://pmc.ncbi.nlm.nih.gov/articles/PMC11488799/?utm_source=chatgpt.com" // Thêm link ở đây
   }
 ];
 
@@ -722,74 +725,107 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                         )}
                         <div className={`${isStackExpanded ? 'contents' : 'relative w-full h-full flex items-center justify-center'}`}>
                             {articles.map((article, index) => (
-                                <motion.div
-                                    key={article.id}
-                                    layout
-                                    custom={index}
-                                    variants={cardVariants}
-                                    initial="collapsed"
-                                    animate={isStackExpanded ? "expanded" : "collapsed"}
-                                    whileHover={!isStackExpanded ? "hover" : {}}
-                                    className={`
-                                        ${isStackExpanded ? 'h-[200px] w-full relative flex' : 'absolute w-[280px] h-[400px] flex flex-col'}
-                                        bg-slate-900 border ${theme.border} rounded-xl overflow-hidden shadow-2xl
-                                        group cursor-pointer select-none
-                                    `}
-                                    onClick={() => !isStackExpanded && setIsStackExpanded(true)}
-                                >
-                                    <div className={`${isStackExpanded ? 'w-1/3' : 'w-full h-full'} overflow-hidden relative`}>
-                                        <img 
-                                            src={article.image} 
-                                            alt={article.title} 
-                                            className={`w-full h-full object-cover transition-transform duration-700 ${isStackExpanded ? 'group-hover:scale-110' : ''}`} 
-                                        />
-                                        {!isStackExpanded && (
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-6">
-                                                 <span className={`text-[8px] font-black uppercase tracking-widest text-red-500 mb-1`}>
-                                                    {article.category}
-                                                </span>
-                                                <h3 className="text-xl font-black uppercase text-white leading-tight">
-                                                    {article.title}
-                                                </h3>
-                                            </div>
-                                        )}
-                                        {isStackExpanded && (
-                                            <div className="absolute top-4 left-4">
-                                                <span className={`px-2 py-1 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest shadow-lg`}>
-                                                    {article.category}
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
+                            <motion.div
+                                key={article.id}
+                                layout
+                                custom={index}
+                                variants={cardVariants}
+                                initial="collapsed"
+                                animate={isStackExpanded ? "expanded" : "collapsed"}
+                                whileHover={!isStackExpanded ? "hover" : {}}
+                                className={`
+                                    ${isStackExpanded ? 'h-[200px] w-full relative flex' : 'absolute w-[280px] h-[400px] flex flex-col'}
+                                    bg-slate-900 border ${theme.border} rounded-xl overflow-hidden shadow-2xl
+                                    group cursor-pointer select-none
+                                `}
+                                onClick={() => !isStackExpanded && setIsStackExpanded(true)}
+                            >
+                                {/* --- PHẦN HÌNH ẢNH --- */}
+                                <div className={`${isStackExpanded ? 'w-1/3' : 'w-full h-full'} overflow-hidden relative`}>
+                                    <img 
+                                        src={article.image} 
+                                        alt={article.title} 
+                                        className={`w-full h-full object-cover transition-transform duration-700 ${isStackExpanded ? 'group-hover:scale-110' : ''}`} 
+                                    />
+                                    
+                                    {/* [QUAN TRỌNG] GIAO DIỆN KHI CHƯA MỞ RỘNG (COLLAPSED) */}
+                                    {!isStackExpanded && (
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent flex flex-col justify-end p-6">
+                                            <span className={`text-[8px] font-black uppercase tracking-widest text-red-500 mb-1`}>
+                                                {article.category}
+                                            </span>
+                                            <h3 className="text-xl font-black uppercase text-white leading-tight mb-2">
+                                                {article.title}
+                                            </h3>
+                                            
+                                            {/* 👇 ĐÂY LÀ PHẦN HIỂN THỊ SUMMARY MỚI THÊM VÀO 👇 */}
+                                            <p className="text-xs text-slate-300 font-medium leading-relaxed line-clamp-3 opacity-90">
+                                                {article.summary}
+                                            </p>
+                                            {/* 👆 ------------------------------------------ 👆 */}
+                                        </div>
+                                    )}
+
                                     {isStackExpanded && (
-                                        <motion.div 
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            className={`p-6 flex flex-col justify-between flex-1 ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}
-                                        >
-                                            <div>
-                                                <div className="flex items-center space-x-2 mb-2 text-[10px] font-bold uppercase text-slate-500">
-                                                    <FileText size={10} />
-                                                    <span>{article.date}</span>
-                                                </div>
-                                                <h3 className={`font-black uppercase leading-tight mb-2 ${theme.text} group-hover:text-red-600 transition-colors text-lg`}>
-                                                    {article.title}
-                                                </h3>
-                                                <div className={`w-12 h-1 ${theme.accentBg} mb-4`} />
-                                                <p className={`${theme.subText} text-xs leading-relaxed line-clamp-4 font-medium`}>
-                                                    {article.summary}
-                                                </p>
+                                        <div className="absolute top-4 left-4">
+                                            <span className={`px-2 py-1 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest shadow-lg`}>
+                                                {article.category}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* --- PHẦN NỘI DUNG CHI TIẾT (KHI ĐÃ MỞ RỘNG) --- */}
+                                {isStackExpanded && (
+                                    <motion.div 
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        className={`p-6 flex flex-col justify-between flex-1 ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}
+                                    >
+                                        <div>
+                                            <div className="flex items-center space-x-2 mb-2 text-[10px] font-bold uppercase text-slate-500">
+                                                <FileText size={10} />
+                                                <span>{article.date}</span>
                                             </div>
-                                            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center mt-auto">
-                                                <span className={`text-[10px] font-black uppercase tracking-widest ${theme.text}`}>Read</span>
-                                                <div className={`w-6 h-6 rounded-full ${theme.accentBg} flex items-center justify-center text-white transform group-hover:translate-x-2 transition-transform`}>
+                                            
+                                            {/* Tiêu đề có gắn link */}
+                                            <a 
+                                                href={article.link || "#"}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={`font-black uppercase leading-tight mb-2 ${theme.text} hover:text-red-600 transition-colors text-lg block`}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                {article.title}
+                                            </a>
+
+                                            <div className={`w-12 h-1 ${theme.accentBg} mb-4`} />
+                                            <p className={`${theme.subText} text-xs leading-relaxed line-clamp-4 font-medium`}>
+                                                {article.summary}
+                                            </p>
+                                        </div>
+                                        
+                                        {/* Nút Read có gắn link */}
+                                        <div className="pt-2 border-t border-slate-200 dark:border-slate-800 mt-auto">
+                                            <a 
+                                                href={article.link || "#"}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex justify-between items-center group/btn w-full"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <span className={`text-[10px] font-black uppercase tracking-widest ${theme.text} group-hover/btn:text-blue-500 transition-colors`}>
+                                                    Read Article
+                                                </span>
+                                                <div className={`w-6 h-6 rounded-full ${theme.accentBg} flex items-center justify-center text-white transform group-hover/btn:translate-x-2 transition-transform`}>
                                                     <ChevronRight size={12} />
                                                 </div>
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </motion.div>
-                            ))}
+                                            </a>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </motion.div>
+                        ))}
                         </div>
                         {isStackExpanded && (
                             <motion.button 
