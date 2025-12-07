@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical, Server } from 'lucide-react';
+import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical, Server, Sparkles } from 'lucide-react';
 import { analyzeImageWithLocalModel } from '../services/localAnalysisService';
 import { generateClinicalReport } from '../services/geminiService';
 import { AnalysisResult, DRGrade, Patient, ReportData, DiagnosisRecord } from '../types';
@@ -67,54 +67,83 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   };
 
   const runAnalysis = async () => {
+      // 1. Reset trạng thái cũ
       setIsAnalyzing(true);
       setAnalysisResult(null);
       setReportData(null);
 
       try {
-          // 1. GỌI LOCAL MODEL (Keras Backend) - Đây là chẩn đoán chính
+          // ------------------------------------------------------------------
+          // BƯỚC A: GỌI LOCAL MODEL (Kết nối với Python Backend)
+          // ------------------------------------------------------------------
+          // Hàm này giờ đã trả về đúng chuẩn: { grade: 0-4, confidence: 0.99... }
           const result = await analyzeImageWithLocalModel(imageFile);
-          setAnalysisResult(result);
           
-          // 2. Dùng Gemini để viết văn bản dựa trên kết quả của Model (Optional)
-          // Chúng ta KHÔNG gửi ảnh cho Gemini để chẩn đoán lại, chỉ gửi kết quả số (Grade) để nó viết văn mẫu.
-          const mockPatient = patients.find(p => p.id === selectedPatientId) || {
-              id: 'temp', name: 'Unknown Patient', age: 0, gender: 'Other', history: 'None', lastExam: ''
+          // Lưu ngay kết quả vào State để giao diện hiện màu Xanh/Vàng/Đỏ
+          setAnalysisResult(result);
+
+          // ------------------------------------------------------------------
+          // BƯỚC B: GỌI GEMINI (Tạo lời khuyên bác sĩ)
+          // ------------------------------------------------------------------
+          setIsReportGenerating(true);
+
+          // Tạo thông tin bệnh nhân giả lập nếu chưa chọn bệnh nhân (để Gemini có ngữ cảnh)
+          const currentPatient = patients.find(p => p.id === selectedPatientId) || {
+              id: 'temp', 
+              name: 'Unknown Patient', 
+              age: 50, // Giả định tuổi để Gemini đưa lời khuyên chung
+              gender: 'Other', 
+              history: 'No records', 
+              lastExam: 'N/A'
           } as Patient;
 
-          setIsReportGenerating(true);
+          // Gửi kết quả số (0-4) cho Gemini để nó "chém gió" ra văn bản chuyên môn
+          const report = await generateClinicalReport(currentPatient, result, language);
           
-          // Chỉ gửi thông tin text cho Gemini, không gửi ảnh base64 để tiết kiệm token và tuân thủ yêu cầu
-          const report = await generateClinicalReport(mockPatient, result, language);
+          // Lưu báo cáo vào State để hiện ở cột bên phải
           setReportData(report);
-          setIsReportGenerating(false);
 
       } catch (error) {
-          console.error("Analysis failed", error);
-          // Alert đã được xử lý trong service nếu lỗi kết nối
+          console.error("Quy trình phân tích thất bại:", error);
+          // Không cần alert ở đây nữa vì localAnalysisService đã alert lỗi chi tiết rồi
       } finally {
           setIsAnalyzing(false);
+          setIsReportGenerating(false);
       }
   };
 
-  const handleSaveToRecord = async () => {
-      if (!selectedPatientId || !analysisResult || !reportData) {
-          alert("Please select a patient and ensure analysis is complete.");
-          return;
-      }
+const handleSaveToRecord = async () => {
+      if (!selectedPatientId || !analysisResult || !reportData) {
+          alert("Please select a patient and ensure analysis is complete.");
+          return;
+      }
 
-      setIsSaving(true);
-      try {
-          const newRecord: DiagnosisRecord = {
+      setIsSaving(true);
+      try {
+          // 1. Tạo object thô (Raw object)
+          const rawRecord = {
               id: Date.now().toString(),
               date: new Date().toISOString(),
-              grade: analysisResult.grade,
-              confidence: analysisResult.confidence,
-              note: reportData.clinicalNotes,
-              imageUrl: imagePreview || undefined 
+              grade: analysisResult.grade ?? 0, // Dùng ?? để bắt cả null lẫn undefined
+              confidence: analysisResult.confidence ?? 0,
+              note: reportData.clinicalNotes || "No notes available",
+              
+              // QUAN TRỌNG: Kiểm tra cả imagePreview
+              imageUrl: imagePreview ?? null, 
+
+              // QUAN TRỌNG: analysisResult.heatmapUrl có thể là undefined -> Phải chuyển thành null
+              heatmapUrl: analysisResult.heatmapUrl ?? null
           };
 
-          await addPatientDiagnosis(selectedPatientId, newRecord);
+          // 2. BƯỚC LÀM SẠCH (NUCLEAR OPTION)
+          // Loại bỏ hoàn toàn mọi key có giá trị undefined bằng cách stringify rồi parse lại
+          // (JSON.stringify sẽ tự động bỏ qua các trường undefined)
+          const cleanRecord = JSON.parse(JSON.stringify(rawRecord));
+
+          // Log ra để kiểm tra lần cuối (Bạn sẽ thấy các trường undefined biến mất)
+          console.log("Clean Record to save:", cleanRecord);
+
+          await addPatientDiagnosis(selectedPatientId, cleanRecord as DiagnosisRecord);
           alert("Saved to patient record successfully!");
           
           setImageFile(null);

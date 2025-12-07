@@ -1,3 +1,4 @@
+
 import { db } from "./firebase";
 import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, orderBy, or } from "firebase/firestore";
 import { Appointment } from "../types";
@@ -5,8 +6,10 @@ import { Appointment } from "../types";
 const COLLECTION_NAME = "appointments";
 
 // --- GET APPOINTMENTS FOR A SPECIFIC DATE ---
+// Updated to filter by doctorId
 export const subscribeToAppointments = (
     dateStr: string,
+    userId: string | undefined, // Added userId param
     onData: (appointments: Appointment[]) => void,
     onError: (error: any) => void
 ) => {
@@ -14,11 +17,18 @@ export const subscribeToAppointments = (
 
     return onSnapshot(q,
         (snapshot) => {
-            const items = snapshot.docs.map(doc => ({
+            let items = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             })) as Appointment[];
             
+            // Filter by Doctor ID if provided (Client-side filtering to avoid complex index requirements)
+            if (userId) {
+                items = items.filter(item => item.doctorId === userId || !item.doctorId); // Fallback: show items without ID if legacy, but ideally strict
+                // STRICT MODE: Only show items explicitly belonging to this doctor
+                items = items.filter(item => item.doctorId === userId); 
+            }
+
             // Client-side sort by startTime
             items.sort((a, b) => a.startTime - b.startTime);
             
@@ -82,9 +92,11 @@ export const subscribeToPatientAppointments = (
 };
 
 // --- GET APPOINTMENTS FOR A DATE RANGE (FOR CHARTS) ---
+// Updated to filter by doctorId
 export const subscribeToAppointmentsRange = (
     startDate: string,
     endDate: string,
+    userId: string | undefined, // Added userId param
     onData: (appointments: Appointment[]) => void,
     onError: (error: any) => void
 ) => {
@@ -97,10 +109,16 @@ export const subscribeToAppointmentsRange = (
 
     return onSnapshot(q,
         (snapshot) => {
-            const items = snapshot.docs.map(doc => ({
+            let items = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             })) as Appointment[];
+
+            // Client-side filtering by Doctor ID
+            if (userId) {
+                items = items.filter(item => item.doctorId === userId);
+            }
+
             onData(items);
         },
         onError

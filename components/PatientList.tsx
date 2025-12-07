@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera, Phone, Mail, ExternalLink, MessageCircle, MapPin, AlertTriangle, Syringe, Eye } from 'lucide-react';
-import { Patient, DRGrade, DiagnosisRecord } from '../types';
+import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera, Phone, Mail, ExternalLink, MessageCircle, MapPin, AlertTriangle, Syringe, Eye, Stethoscope } from 'lucide-react';
+import { Patient, DRGrade, DiagnosisRecord, Appointment } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { subscribeToPatients, addPatient, updatePatient, deletePatient } from '../services/patientService';
+import { subscribeToPatientAppointments } from '../services/scheduleService';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { auth } from '../services/firebase';
 
@@ -26,6 +27,9 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Patient>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Appointments State
+  const [patientAppointments, setPatientAppointments] = useState<Appointment[]>([]);
 
   // Add Patient Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -65,6 +69,24 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
       }
   }, [activePatient, isEditing]);
 
+  // --- NEW: Fetch Real Appointments for Selected Patient ---
+  useEffect(() => {
+      if (activePatient) {
+          // Reset appointments when patient changes
+          setPatientAppointments([]);
+          
+          const unsubscribe = subscribeToPatientAppointments(
+              activePatient.uid || activePatient.id, // Prefer UID if linked, else ID (fallback logic depends on service)
+              activePatient.email || '',
+              (data) => {
+                  setPatientAppointments(data);
+              },
+              (err) => console.error(err)
+          );
+          return () => unsubscribe();
+      }
+  }, [activePatient]);
+
   const filteredPatients = useMemo(() => {
     return patients.filter(patient => 
         patient.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -72,40 +94,37 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
     );
   }, [patients, searchTerm]);
 
-  // --- LOGIC: Calculate Next Treatment Date based on Severity ---
+  // --- LOGIC: Calculate Next Treatment Date based on REAL SCHEDULE ---
   const treatmentInfo = useMemo(() => {
-      if (!activePatient) return { date: new Date(), days: [] };
+      // 1. Find the next UPCOMING appointment
+      const now = new Date();
+      const upcoming = patientAppointments
+          .filter(a => new Date(a.date) >= new Date(now.setHours(0,0,0,0)) && a.status !== 'Done')
+          .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
 
-      let nextDate = new Date();
-      // Logic: If there is history, base it on the last grade
-      if (activePatient.diagnosisHistory && activePatient.diagnosisHistory.length > 0) {
-          const lastRecord = activePatient.diagnosisHistory[activePatient.diagnosisHistory.length - 1];
-          const lastExamDate = new Date(lastRecord.date);
-          
-          // Add time based on severity
-          // Grade 0 (Healthy) -> 1 Year
-          // Grade 1-2 (Mild/Mod) -> 6 Months
-          // Grade 3 (Severe) -> 3 Months
-          // Grade 4 (Proliferative) -> 1 Month
-          const daysToAdd = lastRecord.grade === 0 ? 365 : lastRecord.grade <= 2 ? 180 : lastRecord.grade === 3 ? 90 : 30;
-          
-          nextDate = new Date(lastExamDate);
-          nextDate.setDate(lastExamDate.getDate() + daysToAdd);
-      } else {
-          // If no history, suggest next week
-          nextDate.setDate(nextDate.getDate() + 7);
+      if (upcoming) {
+          const nextDate = new Date(upcoming.date);
+          // Generate 7-day strip centered on nextDate
+          const days = [];
+          for (let i = -3; i <= 3; i++) {
+              const d = new Date(nextDate);
+              d.setDate(nextDate.getDate() + i);
+              days.push(d);
+          }
+          return { date: nextDate, days, hasAppointment: true, title: upcoming.title, type: upcoming.type };
       }
 
-      // Generate 7-day strip centered on nextDate
+      // 2. Fallback: If no appointment, just show current week
+      const fallbackDate = new Date();
       const days = [];
-      for (let i = -3; i <= 3; i++) {
-          const d = new Date(nextDate);
-          d.setDate(nextDate.getDate() + i);
+      for (let i = 0; i < 7; i++) {
+          const d = new Date(fallbackDate);
+          d.setDate(fallbackDate.getDate() + i);
           days.push(d);
       }
 
-      return { date: nextDate, days };
-  }, [activePatient]);
+      return { date: fallbackDate, days, hasAppointment: false, title: "Not Scheduled", type: "None" };
+  }, [patientAppointments]);
 
   // --- LOGIC: Chart Data from Real History ---
   const chartData = useMemo(() => {
@@ -225,6 +244,27 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
 
                   <div className={`p-6 rounded-3xl shadow-xl border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} relative overflow-hidden ${hoverEffect}`}>
                       <div className="flex flex-col items-center text-center">
+                          {/* UPDATED: Edit Button Positioned Top Right */}
+                          <div className="absolute top-4 right-4 z-10">
+                              {isEditing ? (
+                                  <button 
+                                    onClick={handleCancelEdit}
+                                    className="p-2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500 hover:text-red-500 transition-colors shadow-sm"
+                                    title="Cancel"
+                                  >
+                                      <X size={16} />
+                                  </button>
+                              ) : (
+                                  <button 
+                                    onClick={() => setIsEditing(true)}
+                                    className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-slate-700 transition-colors shadow-sm group"
+                                    title="Edit Profile"
+                                  >
+                                      <Edit2 size={16} className="group-hover:rotate-12 transition-transform" />
+                                  </button>
+                              )}
+                          </div>
+
                           <div className="relative mb-4">
                               <div 
                                 className={`w-24 h-24 rounded-full overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-lg group relative ${isEditing ? 'cursor-pointer' : ''}`}
@@ -255,67 +295,134 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                           </div>
                           
                           {isEditing ? (
-                              <div className="w-full space-y-2 mb-4">
-                                  <input 
-                                    type="text" 
-                                    value={editForm.name || ''} 
-                                    onChange={(e) => setEditForm({...editForm, name: e.target.value})}
-                                    className={`w-full text-center font-black text-xl p-2 rounded border ${inputClass}`}
-                                    placeholder="Patient Name"
-                                  />
-                                  <div className="flex justify-center gap-2">
-                                      <input 
-                                        type="number" 
-                                        value={editForm.age || ''}
-                                        onChange={(e) => setEditForm({...editForm, age: Number(e.target.value)})}
-                                        className={`w-20 text-center text-sm p-2 rounded border ${inputClass}`}
-                                        placeholder="Age"
-                                      />
-                                      <select
-                                        value={editForm.gender || 'Male'}
-                                        onChange={(e) => setEditForm({...editForm, gender: e.target.value as any})}
-                                        className={`w-24 text-center text-sm p-2 rounded border ${inputClass}`}
-                                      >
-                                          <option value="Male">Male</option>
-                                          <option value="Female">Female</option>
-                                          <option value="Other">Other</option>
-                                      </select>
-                                  </div>
-                                  
-                                  {/* Edit Phone, Email & Address */}
-                                  <div className="pt-2 space-y-2">
-                                      <div className="relative">
-                                          <Phone size={14} className="absolute left-3 top-3 text-slate-400"/>
-                                          <input 
-                                            type="text"
-                                            value={editForm.phone || ''}
-                                            onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
-                                            className={`w-full pl-9 p-2 rounded text-xs border ${inputClass}`}
-                                            placeholder="Phone Number"
-                                          />
-                                      </div>
-                                      <div className="relative">
-                                          <Mail size={14} className="absolute left-3 top-3 text-slate-400"/>
-                                          <input 
-                                            type="email"
-                                            value={editForm.email || ''}
-                                            onChange={(e) => setEditForm({...editForm, email: e.target.value})}
-                                            className={`w-full pl-9 p-2 rounded text-xs border ${inputClass}`}
-                                            placeholder="Email Address"
-                                          />
-                                      </div>
-                                      <div className="relative">
-                                          <MapPin size={14} className="absolute left-3 top-3 text-slate-400"/>
-                                          <input 
-                                            type="text"
-                                            value={editForm.address || ''}
-                                            onChange={(e) => setEditForm({...editForm, address: e.target.value})}
-                                            className={`w-full pl-9 p-2 rounded text-xs border ${inputClass}`}
-                                            placeholder="Home Address"
-                                          />
-                                      </div>
-                                  </div>
-                              </div>
+                            // SỬA: Tăng max-h lên 70vh và pb-32 (khoảng trống đáy cực lớn)
+                            <div className="w-full mb-4 overflow-y-auto max-h-[60vh] custom-scrollbar px-2 pb-40 border-b border-slate-100 dark:border-slate-800">
+                                <div className="space-y-4 pt-2">
+                                    {/* Input Name */}
+                                    <div>
+                                        <label className={`text-[10px] font-bold uppercase tracking-widest ${subText} mb-1 block`}>Full Name</label>
+                                        <input 
+                                            type="text" 
+                                            value={editForm.name || ''} 
+                                            onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                                            className={`w-full font-bold text-lg p-3 rounded-xl border ${inputClass}`}
+                                            placeholder="Patient Name"
+                                        />
+                                    </div>
+                                    
+                                    {/* Input Age & Gender */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className={`text-[10px] font-bold uppercase tracking-widest ${subText} mb-1 block`}>Age</label>
+                                            <input 
+                                                type="number" 
+                                                value={editForm.age || ''}
+                                                onChange={(e) => setEditForm({...editForm, age: Number(e.target.value)})}
+                                                className={`w-full text-center text-sm p-3 rounded-xl border ${inputClass}`}
+                                                placeholder="Age"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className={`text-[10px] font-bold uppercase tracking-widest ${subText} mb-1 block`}>Gender</label>
+                                            <select
+                                                value={editForm.gender || 'Male'}
+                                                onChange={(e) => setEditForm({...editForm, gender: e.target.value as any})}
+                                                className={`w-full text-center text-sm p-3 rounded-xl border ${inputClass}`}
+                                            >
+                                                <option value="Male">Male</option>
+                                                <option value="Female">Female</option>
+                                                <option value="Other">Other</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Edit Phone, Email & Address */}
+                                    <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                        <div className="relative">
+                                            <Phone size={16} className="absolute left-3 top-3.5 text-slate-400"/>
+                                            <input 
+                                                type="text"
+                                                value={editForm.phone || ''}
+                                                onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                                                className={`w-full pl-10 p-3 rounded-xl text-sm border ${inputClass}`}
+                                                placeholder="Phone Number"
+                                            />
+                                        </div>
+                                        <div className="relative">
+                                            <Mail size={16} className="absolute left-3 top-3.5 text-slate-400"/>
+                                            <input 
+                                                type="email"
+                                                value={editForm.email || ''}
+                                                onChange={(e) => setEditForm({...editForm, email: e.target.value})}
+                                                className={`w-full pl-10 p-3 rounded-xl text-sm border ${inputClass}`}
+                                                placeholder="Email Address"
+                                            />
+                                        </div>
+                                        <div className="relative">
+                                            <MapPin size={16} className="absolute left-3 top-3.5 text-slate-400"/>
+                                            <input 
+                                                type="text"
+                                                value={editForm.address || ''}
+                                                onChange={(e) => setEditForm({...editForm, address: e.target.value})}
+                                                className={`w-full pl-10 p-3 rounded-xl text-sm border ${inputClass}`}
+                                                placeholder="Home Address"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Edit Blood, Height, Weight */}
+                                    <div className="grid grid-cols-3 gap-3 pt-2">
+                                        <div className="text-center">
+                                            <label className={`text-[10px] uppercase font-bold ${subText} mb-1 block`}>Blood</label>
+                                            <input 
+                                                type="text" 
+                                                value={editForm.bloodType || ''}
+                                                onChange={(e) => setEditForm({...editForm, bloodType: e.target.value})}
+                                                className={`w-full text-center font-bold p-2 rounded-xl border ${inputClass}`}
+                                            />
+                                        </div>
+                                        <div className="text-center">
+                                            <label className={`text-[10px] uppercase font-bold ${subText} mb-1 block`}>Height</label>
+                                            <input 
+                                                type="number" 
+                                                value={editForm.height || ''}
+                                                onChange={(e) => setEditForm({...editForm, height: Number(e.target.value)})}
+                                                className={`w-full text-center font-bold p-2 rounded-xl border ${inputClass}`}
+                                            />
+                                        </div>
+                                        <div className="text-center">
+                                            <label className={`text-[10px] uppercase font-bold ${subText} mb-1 block`}>Weight</label>
+                                            <input 
+                                                type="number" 
+                                                value={editForm.weight || ''}
+                                                onChange={(e) => setEditForm({...editForm, weight: Number(e.target.value)})}
+                                                className={`w-full text-center font-bold p-2 rounded-xl border ${inputClass}`}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* ACTION BUTTONS */}
+                                    <div className="w-full flex gap-3 pt-6">
+                                        <button 
+                                            onClick={handleUpdatePatient}
+                                            disabled={isSaving}
+                                            className={`flex-1 py-4 rounded-xl font-bold uppercase text-xs tracking-widest text-white flex items-center justify-center gap-2 transition-colors bg-green-600 hover:bg-green-500 shadow-lg`}
+                                        >
+                                            {isSaving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} Save Changes
+                                        </button>
+                                        <button 
+                                            onClick={handleDeletePatient}
+                                            className={`px-5 rounded-xl font-bold uppercase text-xs tracking-widest text-white bg-red-600 hover:bg-red-500 transition-colors shadow-lg`}
+                                            title="Delete Patient"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </div>
+                                    
+                                    {/* KHOẢNG TRỐNG AN TOÀN CUỐI CÙNG (DỰ PHÒNG) */}
+                                    <div className="h-20 w-full opacity-0 pointer-events-none">Spacer</div>
+                                </div>
+                            </div>
                           ) : (
                               <>
                                 <h2 className="text-2xl font-black">{activePatient.name}</h2>
@@ -350,7 +457,8 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                               </>
                           )}
 
-                          <div className="grid grid-cols-3 gap-4 w-full mb-8">
+                          {/* Stats Grid */}
+                          <div className="grid grid-cols-3 gap-4 w-full mb-2">
                               <div className="flex flex-col items-center">
                                   <span className={`text-[10px] font-bold uppercase tracking-widest ${subText} mb-1`}>Blood</span>
                                   {isEditing ? (
@@ -391,54 +499,32 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                   )}
                               </div>
                           </div>
-
-                          {isEditing ? (
-                              <div className="w-full flex gap-2">
-                                  <button 
-                                    onClick={handleUpdatePatient}
-                                    disabled={isSaving}
-                                    className={`flex-1 py-3 rounded-xl font-bold uppercase text-xs tracking-widest text-white flex items-center justify-center gap-2 transition-colors ${isDarkMode ? 'bg-green-600 hover:bg-green-500' : 'bg-green-600 hover:bg-green-500'}`}
-                                  >
-                                      {isSaving ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>} Save
-                                  </button>
-                                  <button 
-                                    onClick={handleCancelEdit}
-                                    className={`py-3 px-4 rounded-xl font-bold uppercase text-xs tracking-widest bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors`}
-                                  >
-                                      <X size={16} />
-                                  </button>
-                                  <button 
-                                    onClick={handleDeletePatient}
-                                    className={`py-3 px-4 rounded-xl font-bold uppercase text-xs tracking-widest text-white bg-red-600 hover:bg-red-500 transition-colors`}
-                                  >
-                                      <Trash2 size={16} />
-                                  </button>
-                              </div>
-                          ) : (
-                              <button 
-                                onClick={() => setIsEditing(true)}
-                                className={`w-full py-3 rounded-xl font-bold uppercase text-xs tracking-widest ${isDarkMode ? 'bg-white text-black hover:bg-slate-200' : 'bg-black text-white hover:bg-slate-800'} transition-colors flex items-center justify-center gap-2`}
-                              >
-                                  <Edit2 size={14} /> Edit Profile
-                              </button>
-                          )}
                       </div>
                   </div>
 
+                  {/* UPDATED: Next Notification with Sync to Schedule */}
                   <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} ${hoverEffect}`}>
                       <div className="flex justify-between items-center mb-4">
                           <h3 className="font-bold text-sm">Next Notification</h3>
                           <span className="text-[10px] text-slate-400">{new Date().toLocaleDateString()}</span>
                       </div>
-                      <div className={`p-4 rounded-xl border-l-4 border-green-500 ${cardBg}`}>
+                      <div className={`p-4 rounded-xl border-l-4 ${treatmentInfo.hasAppointment ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-300 bg-slate-50 dark:bg-slate-800'}`}>
                            <div className="flex justify-between items-start mb-1">
-                               <span className="font-bold text-sm">Follow-up Check</span>
-                               {/* Placeholder for dynamic med info if we added a med field later */}
-                               <span className="text-[10px] font-bold bg-green-500 text-white px-1.5 py-0.5 rounded">Rx</span>
+                               <span className="font-bold text-sm">
+                                   {treatmentInfo.hasAppointment ? treatmentInfo.title : "No Appointment"}
+                               </span>
+                               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${treatmentInfo.hasAppointment ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                                   {treatmentInfo.hasAppointment ? treatmentInfo.type : 'N/A'}
+                               </span>
                            </div>
-                           <p className="text-xs text-slate-500 mb-2">Based on last diagnosis</p>
+                           <p className="text-xs text-slate-500 mb-2">
+                               {treatmentInfo.hasAppointment ? "Scheduled visit" : "Patient has no upcoming visits."}
+                           </p>
                            <div className="flex gap-2 text-[10px] font-bold uppercase text-slate-400 items-center">
-                               <span>Expected:</span> <span className="text-green-500 text-xs">{treatmentInfo.date.toLocaleDateString()}</span>
+                               <span>Expected:</span> 
+                               <span className={`${treatmentInfo.hasAppointment ? 'text-blue-500' : 'text-slate-500'} text-xs`}>
+                                   {treatmentInfo.date.toLocaleDateString()}
+                               </span>
                            </div>
                       </div>
                   </div>
@@ -522,6 +608,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* UPDATED: Nearest Treatment Card uses synced dates */}
                       <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} ${hoverEffect}`}>
                           <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-4`}>Nearest Treatment</h3>
                           <div className="flex justify-between items-center mb-4">
@@ -530,7 +617,11 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                           </div>
                           <div className="flex justify-between text-center">
                               {treatmentInfo.days.map((day, i) => {
-                                  const isTarget = day.getDate() === treatmentInfo.date.getDate();
+                                  // Highlight today or the specific appointment day
+                                  const isTarget = treatmentInfo.hasAppointment 
+                                      ? day.getDate() === treatmentInfo.date.getDate()
+                                      : day.getDate() === new Date().getDate();
+                                      
                                   return (
                                       <div key={i} className={`flex flex-col items-center gap-1 ${isTarget ? 'font-black scale-110 transition-transform' : 'opacity-50'}`}>
                                           <span className="text-[10px] font-bold text-slate-400">
@@ -539,7 +630,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                           <span className={`text-sm ${isTarget ? (isDarkMode ? 'text-white' : 'text-black') : ''}`}>
                                               {day.getDate()}
                                           </span>
-                                          {isTarget && <div className="w-1.5 h-1.5 bg-teal-500 rounded-full mt-1"></div>}
+                                          {isTarget && <div className={`w-1.5 h-1.5 ${treatmentInfo.hasAppointment ? 'bg-blue-500' : 'bg-slate-300'} rounded-full mt-1`}></div>}
                                       </div>
                                   );
                               })}
@@ -566,7 +657,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
       );
   }
 
-  // ... (Return and rest of component remains same) ...
+  // ... (Rest of component rendering logic for the list view) ...
   return (
     <motion.div 
         initial={{ opacity: 0 }}

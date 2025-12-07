@@ -40,7 +40,7 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
         const startStr = start.toISOString().split('T')[0];
         const endStr = end.toISOString().split('T')[0];
 
-        const unsubApps = subscribeToAppointmentsRange(startStr, endStr, (apps) => {
+        const unsubApps = subscribeToAppointmentsRange(startStr, endStr, currentUser.uid, (apps) => {
             // Aggregate
             const counts: Record<string, number> = {};
             for(let i=0; i<7; i++) {

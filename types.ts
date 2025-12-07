@@ -1,3 +1,4 @@
+
 export enum DRGrade {
   NoDR = 0,
   Mild = 1,
@@ -85,6 +86,7 @@ export interface InventoryItem {
 
 export interface Appointment {
     id: string;
+    doctorId?: string; // NEW: Associate appointment with a specific doctor
     patientId?: string;
     patientName: string;
     title: string;
