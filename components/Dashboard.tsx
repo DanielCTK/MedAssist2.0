@@ -16,8 +16,7 @@ interface DashboardProps {
     setView: (view: string) => void;
 }
 
-// EXPANDED TIME SLOTS to ensure appointments from 7AM to 6PM are visible
-const TIME_SLOTS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]; 
+const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15]; // 8:00 AM to 3:00 PM based on image
 
 // --- EXTRACTED COMPONENTS TO PREVENT RE-RENDER STATE LOSS ---
 
@@ -38,6 +37,9 @@ const ChatInterface = ({
   isDarkMode: boolean;
   myPatients: Patient[];
 }) => {
+    // ... (No changes to ChatInterface implementation, keeping it concise) ...
+    // Using existing implementation for brevity as it was not the target of the fix.
+    // However, I need to include it to keep the file valid.
     const title = isDoctorChat ? "Colleague Chat" : "Patient Messages";
     const cardClass = isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-100 text-slate-900 shadow-lg shadow-blue-50";
     
@@ -424,20 +426,10 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       }
   };
 
-  // UPDATED: Claim appointment ownership when accepting a pending request
-  const handleStatusToggle = async (e: React.MouseEvent, appt: Appointment) => {
+  const handleStatusToggle = async (e: React.MouseEvent, id: string, currentStatus: string) => {
       e.stopPropagation();
-      const currentStatus = appt.status;
       const newStatus = currentStatus === 'Done' ? 'Pending' : currentStatus === 'Pending' ? 'In Progress' : 'Done';
-      
-      const updates: any = { status: newStatus };
-      
-      // If moving from Pending to In Progress, and no doctor is assigned, assign to current user
-      if (currentStatus === 'Pending' && newStatus === 'In Progress' && !appt.doctorId && currentUser) {
-          updates.doctorId = currentUser.uid;
-      }
-
-      await updateAppointment(appt.id, updates);
+      await updateAppointmentStatus(id, newStatus as any);
   };
 
   const formatTime = (time: number) => {
@@ -553,7 +545,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                                     <span className="text-[9px] font-bold uppercase text-yellow-500">{new Date(item.date).toLocaleDateString()}</span>
                                                     <div className="flex gap-1">
                                                         <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="p-1 rounded-full hover:bg-red-500 hover:text-white text-slate-400 transition-colors"><X size={12}/></button>
-                                                        <button onClick={(e) => handleStatusToggle(e, item)} className="p-1 rounded-full bg-green-500 text-white hover:scale-110 transition-transform shadow-md"><Check size={12}/></button>
+                                                        <button onClick={(e) => handleStatusToggle(e, item.id, 'Pending')} className="p-1 rounded-full bg-green-500 text-white hover:scale-110 transition-transform shadow-md"><Check size={12}/></button>
                                                     </div>
                                                 </div>
                                                 <h4 className="font-bold text-xs">{item.title}</h4>
@@ -576,7 +568,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                                 <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{getTranslatedType(item.type)}</span>
                                                 <div className="flex items-center space-x-2">
                                                     <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
-                                                    <button onClick={(e) => handleStatusToggle(e, item)} className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${isDarkMode ? 'bg-blue-500' : 'bg-blue-500'} border-transparent` : item.status === 'Done' ? 'bg-green-500 border-transparent' : 'border-slate-300'}`}>
+                                                    <button onClick={(e) => handleStatusToggle(e, item.id, item.status)} className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${isDarkMode ? 'bg-blue-500' : 'bg-blue-500'} border-transparent` : item.status === 'Done' ? 'bg-green-500 border-transparent' : 'border-slate-300'}`}>
                                                         {item.status === 'In Progress' && <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}
                                                         {item.status === 'Done' && <Check size={10} className="text-white" />}
                                                     </button>
@@ -691,7 +683,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                       </div>
                       <div className="space-y-4">
                           {activityTypes.map(type => {
-                              // Ensure accepted appointments show up. 'status' !== Pending means it's confirmed or in progress.
                               const typeAppts = appointments.filter(a => a.type === type && a.status !== 'Pending');
                               return (
                                   <div key={type} className="grid grid-cols-[150px_1fr] group">
@@ -699,16 +690,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                       <div className="relative h-12 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
                                           <div className="absolute inset-0 flex pointer-events-none">{TIME_SLOTS.map(h => (<div key={h} className="flex-1 border-r border-slate-200/30 dark:border-slate-700/30 first:border-l"></div>))}</div>
                                           {typeAppts.map((appt, idx) => {
-                                              // Adjusted logic for new time range (7am to 6pm)
-                                              const startHour = TIME_SLOTS[0]; // 7
-                                              const totalHours = TIME_SLOTS.length; // 12
-                                              
-                                              // Skip if out of visual range
-                                              if (appt.startTime < startHour || appt.startTime >= (startHour + totalHours)) return null;
-                                              
-                                              const left = ((appt.startTime - startHour) / totalHours) * 100; 
-                                              const width = (appt.duration / totalHours) * 100;
-                                              
+                                              const minTime = 8; const totalHours = 8; const left = ((appt.startTime - minTime) / totalHours) * 100; const width = (appt.duration / totalHours) * 100;
+                                              if (appt.startTime < 8 || appt.startTime >= 16) return null;
                                               return (
                                                   <div key={appt.id} className={`absolute top-1.5 bottom-1.5 rounded-lg px-3 flex items-center shadow-sm cursor-pointer hover:brightness-110 transition-all ${getBarColor(appt.type)} border border-white/10`} style={{ left: `${Math.max(0, left)}%`, width: `${Math.min(100 - left, width)}%` }} onClick={() => openEditModal(appt)} title={`${appt.title} - ${appt.patientName}`}><span className="text-[10px] font-bold truncate w-full">{appt.patientName}</span></div>
                                               )

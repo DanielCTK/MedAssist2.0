@@ -7,7 +7,7 @@ import { User } from 'firebase/auth';
 import SettingsView from './SettingsView';
 import { subscribeToPatientAppointments, addAppointment } from '../services/scheduleService';
 import { subscribeToMessages, sendMessage, getChatId } from '../services/chatService';
-import { checkAndAutoLinkPatient } from '../services/patientService'; 
+import { checkAndAutoLinkPatient } from '../services/patientService'; // IMPORTED
 import { collection, query, where, getDocs, limit, onSnapshot, or } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
@@ -100,6 +100,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                 const foundDoctorId = await checkAndAutoLinkPatient(currentUser, userProfile);
                 if (foundDoctorId) {
                     setAssignedDoctorId(foundDoctorId);
+                    // Force refresh or notification could be added here
                 }
             } else if (userProfile?.doctorUid) {
                 setAssignedDoctorId(userProfile.doctorUid);
@@ -113,12 +114,18 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         if (!currentUser || !userProfile) return;
         setIsSyncing(true);
         try {
+            // 1. Trigger the auto-link logic manually
             const doctorId = await checkAndAutoLinkPatient(currentUser, userProfile);
+            
+            // 2. Update local state if found
             if (doctorId) {
                 setAssignedDoctorId(doctorId);
             } else if (userProfile.doctorUid) {
+                // If already linked in profile, ensure state matches
                 setAssignedDoctorId(userProfile.doctorUid);
             }
+
+            // 3. Simulate a short delay for UX feedback (so the user sees something happened)
             await new Promise(resolve => setTimeout(resolve, 800));
             alert(t.patientDashboard.sync_success || "Data synchronized with Doctor.");
         } catch (error) {
@@ -147,6 +154,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         let unsubPatientData: () => void = () => {};
         
         const fetchPatientData = async () => {
+            // Prioritize UID for query
             let q;
             if (currentUser.uid) {
                  q = query(collection(db, "patients"), where("uid", "==", currentUser.uid), limit(1));
@@ -160,15 +168,18 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                 if (!snapshot.empty) {
                     const patientDoc = snapshot.docs[0].data();
                     
+                    // Sync Diagnosis History
                     if (patientDoc.diagnosisHistory) {
                         setDiagnosisHistory(patientDoc.diagnosisHistory.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
                     }
                     
+                    // Fallback Doctor ID
                     if (!userProfile?.doctorUid && patientDoc.doctorUid) {
                         setAssignedDoctorId(patientDoc.doctorUid);
                     }
                 }
             }, (err) => {
+                // Suppress common permission errors initially
                 if (err?.code !== 'permission-denied') console.error(err);
             });
         };
@@ -210,7 +221,6 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
 
         try {
             await addAppointment({
-                doctorId: assignedDoctorId || undefined, // FIX: Pass doctor ID if known
                 patientId: currentUser.uid,
                 patientName: userProfile?.displayName || currentUser.displayName || "Patient",
                 title: finalTitle,
@@ -248,6 +258,8 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
 
     const latestScan = diagnosisHistory.length > 0 ? diagnosisHistory[0] : null;
     const heroBackground = userProfile?.bannerURL || "https://images.unsplash.com/photo-1519681393798-38e43269d877?q=80&w=2070&auto=format&fit=crop";
+    
+    // Get today's date for min attribute
     const todayStr = new Date().toISOString().split('T')[0];
 
     return (
@@ -265,6 +277,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
+                    {/* SYNC BUTTON */}
                     <button 
                         onClick={handleManualSync}
                         disabled={isSyncing}
@@ -274,6 +287,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                         <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
                     </button>
 
+                    {/* LANGUAGE TOGGLE */}
                     <button 
                         onClick={() => setLanguage(language === 'en' ? 'vi' : 'en')}
                         className={`p-2 rounded-full flex items-center justify-center font-black text-[10px] w-9 h-9 border transition-all ${isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`}
@@ -286,6 +300,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                     </button>
                     <button className={`relative p-2 rounded-full ${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
                         <Bell size={18} />
+                        {/* Notify if appointment approved/done */}
                         {myAppointments.some(a => a.status === 'Done') && (
                             <span className="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full border border-white"></span>
                         )}
@@ -297,14 +312,16 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
             <main className="flex-1 overflow-y-auto custom-scrollbar p-0 relative">
                 <AnimatePresence mode="wait">
                     
-                    {/* VIEW: HOME */}
+                    {/* VIEW: HOME - LANDSCAPE DESIGN */}
                     {currentTab === 'home' && (
                         <motion.div 
                             key="home"
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                             className="relative min-h-full flex flex-col"
                         >
+                            {/* --- HERO SECTION LANDSCAPE --- */}
                             <div className="relative w-full h-[500px] overflow-hidden rounded-b-[40px] shadow-2xl group">
+                                {/* Digital Landscape Art Background */}
                                 <div 
                                     className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-1000"
                                     style={{ 
@@ -312,10 +329,24 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                         filter: isDarkMode ? 'brightness(0.6) saturate(1.2)' : 'brightness(1.05) saturate(1.1)' 
                                     }}
                                 />
-                                <div className={`absolute inset-0 bg-gradient-to-b transition-colors duration-1000 ${isDarkMode ? 'from-transparent via-indigo-950/50 to-slate-950/95' : 'from-transparent via-sky-200/20 to-sky-600/90'}`} />
-                                <div className={`absolute inset-0 bg-gradient-to-r transition-colors duration-1000 ${isDarkMode ? 'from-slate-900/90 via-indigo-950/60 to-transparent' : 'from-sky-500/90 via-sky-400/50 to-transparent'}`} />
+                                
+                                {/* Overlay Gradients - ADAPTIVE */}
+                                <div className={`absolute inset-0 bg-gradient-to-b transition-colors duration-1000 ${
+                                    isDarkMode 
+                                    ? 'from-transparent via-indigo-950/50 to-slate-950/95' 
+                                    : 'from-transparent via-sky-200/20 to-sky-600/90'
+                                }`} />
+                                
+                                <div className={`absolute inset-0 bg-gradient-to-r transition-colors duration-1000 ${
+                                    isDarkMode
+                                    ? 'from-slate-900/90 via-indigo-950/60 to-transparent'
+                                    : 'from-sky-500/90 via-sky-400/50 to-transparent'
+                                }`} />
+
+                                {/* Glowing Moon/Sun Effect */}
                                 <div className={`absolute top-10 right-20 w-32 h-32 rounded-full blur-[60px] opacity-40 animate-pulse transition-colors duration-1000 ${isDarkMode ? 'bg-indigo-500' : 'bg-white'}`} />
 
+                                {/* Change Background Button */}
                                 <button
                                     onClick={() => setCurrentTab('profile')}
                                     className="absolute top-6 right-6 p-2.5 bg-black/20 backdrop-blur-md rounded-full text-white/80 hover:bg-white/20 hover:text-white transition-all opacity-80 hover:opacity-100 z-30 border border-white/10 hover:scale-110"
@@ -324,6 +355,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     <Camera size={18} />
                                 </button>
 
+                                {/* Content */}
                                 <div className="relative z-10 h-full flex flex-col justify-center px-8 md:px-12 max-w-2xl text-white">
                                     <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }}>
                                         <div className="flex items-center space-x-2 mb-4">
@@ -353,8 +385,10 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                 </div>
                             </div>
 
+                            {/* --- FLOATING INFO CARDS --- */}
                             <div className="px-6 -mt-16 relative z-20 pb-20">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Card 1: Latest Diagnosis */}
                                     <motion.div 
                                         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }}
                                         className={`p-6 rounded-3xl backdrop-blur-xl border shadow-xl flex items-center justify-between hover:-translate-y-2 hover:shadow-2xl transition-all duration-300 ${isDarkMode ? 'bg-slate-900/80 border-slate-700 hover:border-slate-600' : 'bg-white/80 border-white hover:border-blue-200'}`}
@@ -373,6 +407,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                         </div>
                                     </motion.div>
 
+                                    {/* Card 2: Upcoming Appt */}
                                     <motion.div 
                                         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.5 }}
                                         className={`p-6 rounded-3xl backdrop-blur-xl border shadow-xl flex items-center justify-between cursor-pointer hover:-translate-y-2 hover:shadow-2xl transition-all duration-300 ${isDarkMode ? 'bg-slate-900/80 border-slate-700 hover:border-slate-600' : 'bg-white/80 border-white hover:border-blue-200'}`}
@@ -395,6 +430,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     </motion.div>
                                 </div>
 
+                                {/* Quick Links */}
                                 <div className="mt-8">
                                     <h4 className="text-sm font-bold uppercase tracking-wider opacity-60 mb-4 ml-2">{language === 'vi' ? 'Dịch Vụ' : 'Services'}</h4>
                                     <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
@@ -420,7 +456,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                         </motion.div>
                     )}
 
-                    {/* VIEW: RECORDS */}
+                    {/* VIEW: HEALTH RECORDS */}
                     {currentTab === 'records' && (
                         <motion.div 
                             key="records"
@@ -442,13 +478,14 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                         </motion.div>
                     )}
 
-                    {/* VIEW: CHAT */}
+                    {/* VIEW: CHAT - MODIFIED FOR PATIENT EXCLUSIVE USE */}
                     {currentTab === 'chat' && (
                         <motion.div 
                             key="chat"
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                             className="h-full flex flex-col"
                         >
+                            {/* Doctor Header */}
                             <div className={`p-4 shadow-sm border-b z-10 flex items-center justify-between ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg">
@@ -464,6 +501,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                 </div>
                             </div>
 
+                            {/* Chat Area */}
                             <div className="flex-1 overflow-y-auto space-y-4 p-4 custom-scrollbar bg-slate-50/50 dark:bg-black/50">
                                 {!assignedDoctorId ? (
                                     <div className="flex flex-col items-center justify-center h-full opacity-60 text-center">
@@ -501,6 +539,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                 <div ref={messagesEndRef} />
                             </div>
 
+                            {/* Input Area */}
                             {assignedDoctorId && (
                                 <div className={`p-3 m-3 rounded-2xl flex items-center gap-2 border shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-white'}`}>
                                     <input 
@@ -557,7 +596,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                         </motion.div>
                     )}
 
-                    {/* VIEW: PROFILE */}
+                    {/* VIEW: PROFILE (Using SettingsView simplified) */}
                     {currentTab === 'profile' && (
                         <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pb-20 p-6">
                             <h2 className="text-2xl font-black mb-4">{t.patientDashboard.tabs.profile}</h2>
@@ -577,7 +616,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                 </AnimatePresence>
             </main>
 
-            {/* --- BOTTOM NAVIGATION --- */}
+            {/* --- BOTTOM NAVIGATION (MOBILE STYLE) --- */}
             <nav className={`px-6 py-3 flex justify-between items-center z-20 ${isDarkMode ? 'bg-black/90 border-slate-900' : 'bg-white/90 border-slate-100'} backdrop-blur-lg border-t`}>
                 <TabButton id="home" icon={Home} label={t.patientDashboard.tabs.home} currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
                 <TabButton id="records" icon={Activity} label={t.patientDashboard.tabs.records} currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
@@ -603,6 +642,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                             </div>
                             
                             <form onSubmit={handleBookAppointment} className="space-y-6">
+                                {/* 1. Reason Selection */}
                                 <div>
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Reason for Visit</label>
                                     <div className="flex flex-wrap gap-2">
@@ -623,8 +663,11 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     </div>
                                 </div>
 
+                                {/* 2. Date Selection */}
                                 <div>
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Preferred Date</label>
+                                    
+                                    {/* NEW: Quick Date Chips */}
                                     <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
                                         {[
                                             { label: language === 'vi' ? 'Ngày mai' : 'Tomorrow', days: 1 },
@@ -658,8 +701,12 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                             className={`w-full bg-transparent outline-none text-sm font-bold ${isDarkMode ? 'text-white [&::-webkit-calendar-picker-indicator]:invert' : 'text-slate-900'}`}
                                         />
                                     </div>
+                                    <p className="text-[9px] text-slate-500 mt-2 ml-1">
+                                        {language === 'vi' ? 'Nhập ngày (ngày/tháng/năm) hoặc chọn biểu tượng lịch.' : 'Type date (DD/MM/YYYY) or tap icon to pick.'}
+                                    </p>
                                 </div>
 
+                                {/* 3. Time Selection */}
                                 <div>
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Available Slot</label>
                                     <div className="grid grid-cols-4 gap-2">
@@ -680,6 +727,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     </div>
                                 </div>
 
+                                {/* 4. Notes */}
                                 <div>
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Additional Notes</label>
                                     <textarea 
