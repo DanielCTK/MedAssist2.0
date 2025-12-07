@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical, Server, Sparkles } from 'lucide-react';
+import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical } from 'lucide-react';
 import { analyzeImageWithLocalModel } from '../services/localAnalysisService';
 import { generateClinicalReport } from '../services/geminiService';
 import { AnalysisResult, DRGrade, Patient, ReportData, DiagnosisRecord } from '../types';
 import { subscribeToPatients, addPatientDiagnosis } from '../services/patientService';
-import { motion } from 'framer-motion';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
 
@@ -20,6 +21,15 @@ const GRADE_COLORS = {
   [DRGrade.Proliferative]: '#b91c1c', // Dark Red
 };
 
+// Simulation Images
+const SIMULATION_IMAGES = {
+    0: "https://images.unsplash.com/photo-1579154204601-01588f351e67?auto=format&fit=crop&q=80&w=1000", // Healthy looking
+    1: "https://www.optometryadvisor.com/wp-content/uploads/sites/15/2019/02/diabetic-retinopathy_1447230_G_611520624.jpg", // Mild
+    2: "https://upload.wikimedia.org/wikipedia/commons/b/b3/Diabetic_retinopathy.jpg", // Moderate
+    3: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Fundus_photograph_of_severe_non-proliferative_diabetic_retinopathy.jpg/1200px-Fundus_photograph_of_severe_non-proliferative_diabetic_retinopathy.jpg", // Severe
+    4: "https://upload.wikimedia.org/wikipedia/commons/2/23/Proliferative_diabetic_retinopathy.jpg" // Proliferative
+};
+
 const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
@@ -28,8 +38,6 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  
-  // Text generation states
   const [isReportGenerating, setIsReportGenerating] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -40,7 +48,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
 
   const hoverEffect = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300 hover:border-blue-400 dark:hover:border-slate-600";
 
-  // Load patients
+  // Load patients for the dropdown
   useEffect(() => {
       if (currentUser) {
           const unsubscribe = subscribeToPatients(
@@ -66,86 +74,65 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
     }
   };
 
-  const runAnalysis = async () => {
-      // 1. Reset trạng thái cũ
+  const runAnalysis = async (gradeOverride?: DRGrade) => {
       setIsAnalyzing(true);
-      setAnalysisResult(null);
-      setReportData(null);
-
       try {
-          // ------------------------------------------------------------------
-          // BƯỚC A: GỌI LOCAL MODEL (Kết nối với Python Backend)
-          // ------------------------------------------------------------------
-          // Hàm này giờ đã trả về đúng chuẩn: { grade: 0-4, confidence: 0.99... }
-          const result = await analyzeImageWithLocalModel(imageFile);
-          
-          // Lưu ngay kết quả vào State để giao diện hiện màu Xanh/Vàng/Đỏ
+          // 1. Local AI Analysis (with optional simulation grade)
+          const result = await analyzeImageWithLocalModel(imageFile, gradeOverride);
           setAnalysisResult(result);
-
-          // ------------------------------------------------------------------
-          // BƯỚC B: GỌI GEMINI (Tạo lời khuyên bác sĩ)
-          // ------------------------------------------------------------------
-          setIsReportGenerating(true);
-
-          // Tạo thông tin bệnh nhân giả lập nếu chưa chọn bệnh nhân (để Gemini có ngữ cảnh)
-          const currentPatient = patients.find(p => p.id === selectedPatientId) || {
-              id: 'temp', 
-              name: 'Unknown Patient', 
-              age: 50, // Giả định tuổi để Gemini đưa lời khuyên chung
-              gender: 'Other', 
-              history: 'No records', 
-              lastExam: 'N/A'
+          
+          // 2. Generate Report via Gemini
+          const mockPatient = patients.find(p => p.id === selectedPatientId) || {
+              id: 'temp', name: 'Unknown Patient', age: 0, gender: 'Other', history: 'None', lastExam: ''
           } as Patient;
 
-          // Gửi kết quả số (0-4) cho Gemini để nó "chém gió" ra văn bản chuyên môn
-          const report = await generateClinicalReport(currentPatient, result, language);
-          
-          // Lưu báo cáo vào State để hiện ở cột bên phải
+          setIsReportGenerating(true);
+          // Pass current language to Gemini Service
+          const report = await generateClinicalReport(mockPatient, result, language);
           setReportData(report);
+          setIsReportGenerating(false);
 
       } catch (error) {
-          console.error("Quy trình phân tích thất bại:", error);
-          // Không cần alert ở đây nữa vì localAnalysisService đã alert lỗi chi tiết rồi
+          console.error("Analysis failed", error);
+          alert("Analysis failed. Please try again.");
       } finally {
           setIsAnalyzing(false);
-          setIsReportGenerating(false);
       }
   };
 
-const handleSaveToRecord = async () => {
-      if (!selectedPatientId || !analysisResult || !reportData) {
-          alert("Please select a patient and ensure analysis is complete.");
-          return;
-      }
+  const handleAnalyze = () => {
+    if (!imageFile) return;
+    runAnalysis();
+  };
 
-      setIsSaving(true);
-      try {
-          // 1. Tạo object thô (Raw object)
-          const rawRecord = {
+  const handleSimulation = (grade: DRGrade) => {
+      // Set dummy image for visual effect
+      setImagePreview(SIMULATION_IMAGES[grade]);
+      setImageFile(null); // Clear actual file
+      runAnalysis(grade);
+  };
+
+  const handleSaveToRecord = async () => {
+      if (!selectedPatientId || !analysisResult || !reportData) {
+          alert("Please select a patient and ensure analysis is complete.");
+          return;
+      }
+
+      setIsSaving(true);
+      try {
+          const newRecord: DiagnosisRecord = {
               id: Date.now().toString(),
               date: new Date().toISOString(),
-              grade: analysisResult.grade ?? 0, // Dùng ?? để bắt cả null lẫn undefined
-              confidence: analysisResult.confidence ?? 0,
-              note: reportData.clinicalNotes || "No notes available",
-              
-              // QUAN TRỌNG: Kiểm tra cả imagePreview
-              imageUrl: imagePreview ?? null, 
-
-              // QUAN TRỌNG: analysisResult.heatmapUrl có thể là undefined -> Phải chuyển thành null
-              heatmapUrl: analysisResult.heatmapUrl ?? null
+              grade: analysisResult.grade,
+              confidence: analysisResult.confidence,
+              note: reportData.clinicalNotes,
+              imageUrl: imagePreview || undefined 
           };
 
-          // 2. BƯỚC LÀM SẠCH (NUCLEAR OPTION)
-          // Loại bỏ hoàn toàn mọi key có giá trị undefined bằng cách stringify rồi parse lại
-          // (JSON.stringify sẽ tự động bỏ qua các trường undefined)
-          const cleanRecord = JSON.parse(JSON.stringify(rawRecord));
-
-          // Log ra để kiểm tra lần cuối (Bạn sẽ thấy các trường undefined biến mất)
-          console.log("Clean Record to save:", cleanRecord);
-
-          await addPatientDiagnosis(selectedPatientId, cleanRecord as DiagnosisRecord);
+          await addPatientDiagnosis(selectedPatientId, newRecord);
           alert("Saved to patient record successfully!");
           
+          // Reset
           setImageFile(null);
           setImagePreview(null);
           setAnalysisResult(null);
@@ -165,7 +152,7 @@ const handleSaveToRecord = async () => {
   };
 
   return (
-    <div className="h-full flex flex-col md:flex-row gap-6 pb-6">
+    <div className="h-full flex flex-col md:flex-row gap-6 pb-6 overflow-y-auto">
       {/* LEFT COLUMN: Input & Preview */}
       <motion.div 
         initial={{ opacity: 0, x: -20 }}
@@ -178,6 +165,7 @@ const handleSaveToRecord = async () => {
                   <Scan size={20} className="mr-2 text-blue-500" />
                   {t.diagnosis.title}
               </h2>
+              {/* Patient Selector */}
               <div className="relative">
                   <select 
                     value={selectedPatientId}
@@ -195,8 +183,9 @@ const handleSaveToRecord = async () => {
               </div>
           </div>
           
+          {/* Main Image Area - Added min-h-[350px] for mobile visibility */}
           <div 
-            className={`flex-1 rounded-xl border-2 border-dashed relative overflow-hidden transition-all group ${
+            className={`w-full min-h-[350px] md:min-h-0 md:flex-1 rounded-xl border-2 border-dashed relative overflow-hidden transition-all group ${
                 imagePreview 
                 ? 'border-transparent' 
                 : isDarkMode ? 'border-slate-700 hover:border-slate-500 bg-slate-950/50' : 'border-slate-300 hover:border-blue-400 bg-slate-50'
@@ -206,16 +195,14 @@ const handleSaveToRecord = async () => {
               <div className="relative w-full h-full group">
                  <img src={imagePreview} className="w-full h-full object-contain" alt="Fundus" />
                  <div className="absolute top-2 right-2 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => { setImagePreview(null); setImageFile(null); setAnalysisResult(null); }} className="p-2 bg-black/50 text-white rounded-full hover:bg-red-600 transition-colors">
+                    <button onClick={() => setImagePreview(null)} className="p-2 bg-black/50 text-white rounded-full hover:bg-red-600 transition-colors">
                         <X size={16} />
                     </button>
                  </div>
+                 {/* Scanning Effect Overlay */}
                  {isAnalyzing && (
-                     <div className="absolute inset-0 bg-blue-500/10 z-10 flex flex-col items-center justify-center">
+                     <div className="absolute inset-0 bg-blue-500/10 z-10">
                          <div className="absolute top-0 left-0 w-full h-1 bg-blue-400 shadow-[0_0_15px_rgba(59,130,246,1)] animate-[scan_2s_linear_infinite]" />
-                         <div className="bg-black/70 px-4 py-2 rounded-full backdrop-blur-md text-white text-xs font-bold flex items-center">
-                            <Server size={14} className="mr-2 animate-pulse text-green-400"/> Connecting to Local Core...
-                         </div>
                      </div>
                  )}
               </div>
@@ -241,8 +228,9 @@ const handleSaveToRecord = async () => {
           </div>
 
           <div className="mt-6 space-y-4">
+              {/* Primary Analyze Button */}
               <button 
-                onClick={runAnalysis}
+                onClick={handleAnalyze}
                 disabled={!imageFile || isAnalyzing}
                 className={`w-full py-4 rounded-xl font-bold uppercase tracking-widest text-xs flex items-center justify-center transition-all shadow-lg ${
                     !imageFile 
@@ -253,11 +241,37 @@ const handleSaveToRecord = async () => {
                 } text-white`}
               >
                   {isAnalyzing ? (
-                      <><Loader2 size={16} className="animate-spin mr-2" /> Processing Local AI...</>
+                      <><Loader2 size={16} className="animate-spin mr-2" /> {t.diagnosis.running}</>
                   ) : (
-                      <><Microscope size={16} className="mr-2" /> Run Local Model Analysis</>
+                      <><Microscope size={16} className="mr-2" /> {t.diagnosis.analyze_btn}</>
                   )}
               </button>
+
+              {/* Simulation Scenarios */}
+              <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-100'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-60 flex items-center">
+                          <FlaskConical size={10} className="mr-1"/> {t.diagnosis.simulation_mode}
+                      </span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-2">
+                      {[0,1,2,3,4].map((grade) => (
+                          <button
+                            key={grade}
+                            onClick={() => handleSimulation(grade as DRGrade)}
+                            disabled={isAnalyzing}
+                            className={`py-2 rounded-lg text-xs font-bold border transition-colors hover:scale-105 ${
+                                isDarkMode 
+                                ? 'bg-slate-900 border-slate-700 hover:bg-slate-800' 
+                                : 'bg-white border-slate-200 hover:bg-slate-100'
+                            }`}
+                            style={{ color: GRADE_COLORS[grade as DRGrade] }}
+                          >
+                              {grade}
+                          </button>
+                      ))}
+                  </div>
+              </div>
           </div>
         </div>
       </motion.div>
@@ -277,19 +291,19 @@ const handleSaveToRecord = async () => {
               </div>
           ) : (
               <div className="flex flex-col h-full gap-4">
-                  {/* Grade Card - FROM LOCAL MODEL */}
+                  {/* Grade Card */}
                   <div className={`p-6 rounded-2xl border shadow-lg relative overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} ${hoverEffect}`}>
                       <div className={`absolute top-0 left-0 w-2 h-full`} style={{ backgroundColor: GRADE_COLORS[analysisResult.grade] }} />
                       
                       <div className="flex justify-between items-start mb-4">
                           <div>
-                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Local Core Result</p>
+                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">{t.diagnosis.diagnosis_result}</p>
                               <h2 className="text-2xl font-black uppercase" style={{ color: GRADE_COLORS[analysisResult.grade] }}>
                                   {t.diagnosis.grade_labels[analysisResult.grade]}
                               </h2>
                           </div>
                           <div className="text-right">
-                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Model Confidence</p>
+                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Confidence</p>
                               <p className="text-xl font-bold">{(analysisResult.confidence * 100).toFixed(1)}%</p>
                           </div>
                       </div>
@@ -297,12 +311,13 @@ const handleSaveToRecord = async () => {
                       <div className="h-2 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                           <motion.div 
                             initial={{ width: 0 }}
-                            animate={{ width: `${(analysisResult.grade === 0 ? 10 : (analysisResult.grade / 4) * 100)}%` }}
+                            animate={{ width: `${(analysisResult.grade === 0 ? 10 : (analysisResult.grade / 4) * 100)}%` }} // Use 10% min visual for grade 0
                             className="h-full rounded-full"
                             style={{ backgroundColor: GRADE_COLORS[analysisResult.grade] }}
                           />
                       </div>
                       
+                      {/* Doctor's Advice Box (Hardcoded in Translation based on grade) */}
                       <div className={`mt-4 p-3 rounded-lg border ${isDarkMode ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-100'}`}>
                           <p className="text-xs font-medium opacity-90 leading-relaxed">
                               {t.diagnosis.advice[analysisResult.grade]}
@@ -310,28 +325,28 @@ const handleSaveToRecord = async () => {
                       </div>
                   </div>
 
-                  {/* Gemini Generated Text Report */}
+                  {/* Gemini Report */}
                   <div className={`flex-1 p-6 rounded-2xl border shadow-lg overflow-y-auto custom-scrollbar ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} ${hoverEffect}`}>
                        <div className="flex items-center mb-4">
-                           <div className="w-6 h-6 rounded bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white font-black italic text-xs mr-3">
+                           <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-black italic text-xs mr-3">
                                AI
                            </div>
-                           <h3 className="font-bold text-sm uppercase tracking-wide">Automated Report Writer</h3>
+                           <h3 className="font-bold text-sm uppercase tracking-wide">{t.diagnosis.gemini_analysis} ({language === 'vi' ? 'VN' : 'EN'})</h3>
                        </div>
                        
                        {isReportGenerating ? (
                            <div className="flex flex-col items-center justify-center py-10 opacity-60">
                                <Loader2 className="animate-spin mb-3" size={24} />
-                               <p className="text-xs font-bold uppercase">Writing Report...</p>
+                               <p className="text-xs font-bold uppercase">{t.diagnosis.generating}</p>
                            </div>
                        ) : reportData ? (
                            <div className="space-y-6">
                                <div>
-                                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Clinical Findings (Generated)</p>
+                                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Clinical Findings</p>
                                    <p className="text-sm leading-relaxed opacity-90 whitespace-pre-wrap">{reportData.clinicalNotes}</p>
                                </div>
                                <div>
-                                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Patient Letter (Generated)</p>
+                                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Patient Communication</p>
                                    <div className={`p-4 rounded-xl text-sm italic ${isDarkMode ? 'bg-slate-950 border border-slate-800' : 'bg-slate-50 border border-slate-100'}`}>
                                        "{reportData.patientLetter}"
                                    </div>

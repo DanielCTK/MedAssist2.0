@@ -1,4 +1,3 @@
-
 import { db } from "./firebase";
 import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, orderBy, or } from "firebase/firestore";
 import { Appointment } from "../types";
@@ -22,11 +21,10 @@ export const subscribeToAppointments = (
                 ...doc.data()
             })) as Appointment[];
             
-            // Filter by Doctor ID if provided (Client-side filtering to avoid complex index requirements)
+            // Filter by Doctor ID if provided
+            // FIX: Allow items that belong to the user OR have no doctor assigned (legacy/pending)
             if (userId) {
-                items = items.filter(item => item.doctorId === userId || !item.doctorId); // Fallback: show items without ID if legacy, but ideally strict
-                // STRICT MODE: Only show items explicitly belonging to this doctor
-                items = items.filter(item => item.doctorId === userId); 
+                items = items.filter(item => item.doctorId === userId || !item.doctorId);
             }
 
             // Client-side sort by startTime
@@ -114,9 +112,9 @@ export const subscribeToAppointmentsRange = (
                 ...doc.data()
             })) as Appointment[];
 
-            // Client-side filtering by Doctor ID
+            // FIX: Allow items that belong to the user OR have no doctor assigned
             if (userId) {
-                items = items.filter(item => item.doctorId === userId);
+                items = items.filter(item => item.doctorId === userId || !item.doctorId);
             }
 
             onData(items);
