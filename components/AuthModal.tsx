@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, User, Lock, Mail, ArrowRight, Loader2, ShieldCheck, Fingerprint, AlertCircle, Stethoscope, UserCircle, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
-import { auth } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from "firebase/auth";
 import { getUserProfile, updateUserProfile } from '../services/userService';
-
+// Thêm doc, setDoc, getDoc, serverTimestamp vào import
+import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore"; 
+// Thêm googleProvider và db vào import
+import { auth, googleProvider, db } from '../services/firebase';
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -95,16 +97,46 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
   const handleGoogleLogin = async () => {
       setIsGoogleLoading(true);
       setError(null);
+      
       try {
-          const provider = new GoogleAuthProvider();
-          provider.setCustomParameters({ prompt: 'select_account' });
-          const result = await signInWithPopup(auth, provider);
-          await getUserProfile(result.user, 'patient'); // Default to patient for Google
-          onLogin();
+          // 1. Mở cửa sổ đăng nhập Google
+          const result = await signInWithPopup(auth, googleProvider);
+          const user = result.user;
+
+          // 2. Kiểm tra xem user này đã có trong Firestore chưa
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userRef);
+
+          if (!userSnap.exists()) {
+            // 3. Nếu chưa có (người mới), tạo hồ sơ mặc định trong Firestore
+            await setDoc(userRef, {
+              uid: user.uid,
+              displayName: user.displayName,
+              email: user.email,
+              photoURL: user.photoURL,
+              role: 'patient', // Mặc định là bệnh nhân
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp(),
+              hospital: '',
+              specialty: ''
+            });
+          } else {
+             // Nếu đã có, cập nhật thời gian đăng nhập lần cuối
+             await setDoc(userRef, { lastLogin: serverTimestamp() }, { merge: true });
+          }
+
+          // 4. (Tùy chọn) Gọi service lấy profile về state global nếu app bạn cần
+          // await getUserProfile(user, 'patient'); 
+          
+          // 5. Đóng modal và vào trang chính
+          onLogin(); 
+
       } catch (err: any) {
-          console.error("Google Auth Error:", err);
+          console.error("Lỗi đăng nhập Google:", err);
+          
+          // Bỏ qua lỗi nếu người dùng tự tắt cửa sổ popup
           if (err.code !== 'auth/popup-closed-by-user') {
-              setError(t.auth.errors.google_failed);
+              setError(language === 'vi' ? "Đăng nhập Google thất bại." : "Google sign-in failed.");
           }
       } finally {
           setIsGoogleLoading(false);
