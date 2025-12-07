@@ -213,24 +213,33 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         setInputMsg("");
     };
 
-    const handleBookAppointment = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!newBookDate || !currentUser) return;
+const handleBookAppointment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newBookDate || !currentUser) return;
         
-        const finalTitle = newBookReason ? `${selectedReasonType}: ${newBookReason}` : selectedReasonType;
+        // --- LOGIC MỚI: BẮT BUỘC PHẢI CÓ DOCTOR ID ---
+        if (!assignedDoctorId) {
+            alert(language === 'vi' ? "Vui lòng liên kết với bác sĩ trước khi đặt lịch." : "Please link with a doctor before booking.");
+            setCurrentTab('profile'); // Chuyển hướng user đi link
+            return;
+        }
+        
+        const finalTitle = newBookReason ? `${selectedReasonType}: ${newBookReason}` : selectedReasonType;
 
-        try {
-            await addAppointment({
-                patientId: currentUser.uid,
-                patientName: userProfile?.displayName || currentUser.displayName || "Patient",
-                title: finalTitle,
-                type: 'Consult',
-                date: newBookDate,
-                startTime: selectedTimeSlot, 
-                duration: 1,
-                status: 'Pending',
-                notes: newBookReason
-            });
+        try {
+            await addAppointment({
+                // --- QUAN TRỌNG: Gửi kèm doctorId để nó hiện bên dashboard bác sĩ ---
+                doctorId: assignedDoctorId, 
+                patientId: currentUser.uid,
+                patientName: userProfile?.displayName || currentUser.displayName || "Patient",
+                title: finalTitle,
+                type: 'Consult',
+                date: newBookDate,
+                startTime: selectedTimeSlot, 
+                duration: 1,
+                status: 'Pending',
+                notes: newBookReason
+            });
             alert(language === 'vi' ? "Yêu cầu đã gửi thành công! Bác sĩ sẽ xác nhận sớm." : "Appointment request sent! Doctor will confirm.");
             setIsBookModalOpen(false);
             setNewBookReason("");

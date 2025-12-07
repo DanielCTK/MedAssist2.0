@@ -305,27 +305,30 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(end.getDate() - 6);
-
-      const formatDate = (d: Date) => {
-          const year = d.getFullYear();
-          const month = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
+      // UPDATED: Pass currentUser.uid to filter stats
+ useEffect(() => {
+      // Hàm helper để format chuẩn YYYY-MM-DD theo giờ địa phương (tránh lệch múi giờ UTC)
+      const formatDate = (date: Date) => {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
           return `${year}-${month}-${day}`;
       };
+
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 6); // Lấy 7 ngày gần nhất (tính cả hôm nay)
 
       const startStr = formatDate(start);
       const endStr = formatDate(end);
 
-      // UPDATED: Pass currentUser.uid to filter stats
+      // Gọi service với bộ lọc Doctor ID
       const unsubscribe = subscribeToAppointmentsRange(
           startStr,
-          endStr,
-          currentUser?.uid, // Filter by current Doctor
+          endStr,   
+          currentUser?.uid, // Chỉ lấy dữ liệu của bác sĩ hiện tại
           (data) => {
+              // 1. Tạo khung dữ liệu rỗng cho 7 ngày (để biểu đồ không bị gãy nếu ngày đó không có khách)
               const counts: Record<string, number> = {};
               for (let i = 0; i < 7; i++) {
                   const d = new Date(start);
@@ -333,16 +336,26 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                   const dStr = formatDate(d);
                   counts[dStr] = 0;
               }
+
+              // 2. Đếm số lượng lịch hẹn
               data.forEach(appt => {
-                  if (counts[appt.date] !== undefined) {
+                  // Chỉ đếm các lịch đã có trong danh sách ngày VÀ KHÔNG PHẢI là 'Pending'
+                  // (Biểu đồ hoạt động chỉ nên tính các ca đã xếp lịch hoặc đã khám)
+                  if (counts[appt.date] !== undefined && appt.status !== 'Pending') {
                       counts[appt.date]++;
                   }
               });
-              const chartData = Object.keys(counts).sort().map(dateStr => {
-                  const date = new Date(dateStr);
-                  const dayName = date.toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', { weekday: 'short' });
-                  return { name: dayName, patients: counts[dateStr] };
-              });
+
+              // 3. Chuyển đổi sang mảng và Sắp xếp lại theo ngày tăng dần (Quan trọng)
+              const chartData = Object.entries(counts)
+                  .sort(([dateA], [dateB]) => dateA.localeCompare(dateB)) // Sắp xếp A-Z theo chuỗi ngày YYYY-MM-DD
+                  .map(([dateStr, count]) => {
+                      const date = new Date(dateStr);
+                      // Format tên thứ (Mon, Tue / T2, T3) dựa trên ngôn ngữ
+                      const dayName = date.toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', { weekday: 'short' });
+                      return { name: dayName, patients: count };
+                  });
+
               setStatsData(chartData);
           },
           (err) => {
@@ -350,7 +363,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
           }
       );
       return () => unsubscribe();
-  }, [language, currentUser]);
+  }, [language, currentUser]); // Thêm 'language' vào dependency để khi đổi ngôn ngữ, biểu đồ tự dịch Thứ/Ngày
   
   const openAddModal = (typeOverride?: string) => {
       setEditingApptId(null);

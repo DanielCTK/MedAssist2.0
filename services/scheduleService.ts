@@ -94,11 +94,11 @@ export const subscribeToPatientAppointments = (
 // --- GET APPOINTMENTS FOR A DATE RANGE (FOR CHARTS) ---
 // Updated to filter by doctorId
 export const subscribeToAppointmentsRange = (
-    startDate: string,
-    endDate: string,
-    userId: string | undefined, // Added userId param
-    onData: (appointments: Appointment[]) => void,
-    onError: (error: any) => void
+    startDate: string,                  // Tham số 1
+    endDate: string,                    // Tham số 2
+    userId: string | undefined,         // Tham số 3 (Doctor ID)
+    onData: (appointments: Appointment[]) => void, // Tham số 4 (Callback thành công)
+    onError: (error: any) => void       // Tham số 5 (Callback lỗi)
 ) => {
     // Firestore allows range filters on string dates (ISO format YYYY-MM-DD works perfectly)
     const q = query(
@@ -168,3 +168,5 @@ export const deleteAppointment = async (id: string) => {
         throw error;
     }
 };
+
+
