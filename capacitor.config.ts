@@ -5,7 +5,15 @@ const config: CapacitorConfig = {
   appName: 'MedAssist',
   webDir: 'dist',
   server: {
-    androidScheme: 'https'
+    androidScheme: 'https',
+    // Experience #1: Allow navigation to your Vercel domain for API calls
+    allowNavigation: [
+      'med-assist2-0.vercel.app',
+      'generativelanguage.googleapis.com', // For Google Gemini API
+      'firebasestorage.googleapis.com',    // For Firebase Storage
+      '*.firebaseio.com',
+      '*.googleapis.com'
+    ]
   }
 };
 

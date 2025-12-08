@@ -2,10 +2,30 @@ import { AnalysisResult, DRGrade } from '../types';
 
 // =================================================================================
 // 🧠 AI ENGINE CONNECTION
-// Connects to your local FastAPI backend (medassist-ai-core)
+// Experience #1: Mobile App needs Absolute URL.
+// Localhost works on Web, but fails on Capacitor (Mobile).
 // =================================================================================
 
-const API_URL = "http://localhost:8000/predict"; // URL mặc định của FastAPI/Uvicorn
+// Determine the Base URL based on environment
+const getApiBaseUrl = () => {
+  // Check if we are in production or if a specific API URL is set in .env
+  // Safely access env using optional chaining
+  const meta = import.meta as any;
+  const envUrl = meta.env?.VITE_API_URL;
+  
+  if (envUrl) return envUrl;
+
+  // Experience #1: Hardcoded fallback for Mobile/Production if env var is missing
+  // Using the domain provided in your insights
+  if (meta.env?.PROD) {
+      return "https://med-assist2-0.vercel.app";
+  }
+
+  // Default to localhost for local web development
+  return "http://localhost:8000";
+};
+
+const API_URL = `${getApiBaseUrl()}/predict`;
 
 export interface EnhancedAnalysisResult extends AnalysisResult {
     // Advice is handled via translations
@@ -13,6 +33,7 @@ export interface EnhancedAnalysisResult extends AnalysisResult {
 
 export const analyzeImageWithLocalModel = async (file: File | null, gradeOverride?: DRGrade): Promise<EnhancedAnalysisResult> => {
   console.log("Processing image...", file?.name);
+  console.log("Targeting API:", API_URL);
 
   // 1. Simulation Override (Testing Mode)
   if (gradeOverride !== undefined) {
@@ -28,7 +49,7 @@ export const analyzeImageWithLocalModel = async (file: File | null, gradeOverrid
       });
   }
 
-  // 2. REAL AI CALL (FastAPI)
+  // 2. REAL AI CALL (FastAPI / Vercel Function)
   if (file) {
       try {
           const formData = new FormData();
@@ -36,7 +57,7 @@ export const analyzeImageWithLocalModel = async (file: File | null, gradeOverrid
 
           const startTime = performance.now();
           
-          // Gọi API Python
+          // Using the Absolute URL determined above
           const response = await fetch(API_URL, {
               method: "POST",
               body: formData,
@@ -51,24 +72,24 @@ export const analyzeImageWithLocalModel = async (file: File | null, gradeOverrid
 
           console.log("AI Result:", data);
 
-          // Map response từ Python về Typescript
+          // Map response from Python/Node to Typescript
           return {
-              grade: data.grade as DRGrade, // Đảm bảo Python trả về int 0-4
-              confidence: data.confidence,  // Đảm bảo Python trả về float 0.0-1.0
+              grade: data.grade as DRGrade, 
+              confidence: data.confidence, 
               processingTime: (endTime - startTime) / 1000,
               timestamp: new Date().toISOString()
           };
 
       } catch (error) {
-          console.warn("⚠️ Không kết nối được với AI Core (FastAPI). Đang chuyển sang chế độ Mô phỏng.", error);
+          console.warn("⚠️ Cannot connect to AI Core. Switching to Simulation Mode.", error);
           // Fallthrough to simulation below
       }
   }
 
-  // 3. FALLBACK SIMULATION (Nếu chưa bật server Python hoặc lỗi mạng)
+  // 3. FALLBACK SIMULATION (If Backend is offline or network error)
   return new Promise((resolve) => {
     setTimeout(() => {
-      // Logic ngẫu nhiên (chỉ chạy khi không có Backend)
+      // Random logic (only runs when no Backend response)
       const rand = Math.random();
       let simulatedGrade: DRGrade;
       

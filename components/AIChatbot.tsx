@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, X, Send, Loader2, Sparkles, Bot, Minimize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-// GoogleGenAI, Chat là đúng
 import { GoogleGenAI, Chat } from "@google/genai";
 
 interface Message {
@@ -11,9 +10,11 @@ interface Message {
     timestamp: Date;
 }
 
-// Lấy tên biến môi trường đã sửa lỗi
-// ĐẢM BẢO FILE vite-env.d.ts CÓ KHAI BÁO TYPE CHO BIẾN NÀY
-const GLOBAL_API_KEY = process.env.API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY; 
+// Experience #4: Frontend (Vite) uses import.meta.env.VITE_...
+const getGlobalApiKey = () => {
+    const meta = import.meta as any;
+    return meta.env?.VITE_GEMINI_API_KEY || process.env.API_KEY;
+};
 
 const AIChatbot: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -35,8 +36,7 @@ const AIChatbot: React.FC = () => {
 
     // Initialize Chat Session
     useEffect(() => {
-        // SỬA: Lấy từ biến GLOBAL_API_KEY đã được định nghĩa bên ngoài component
-        const apiKey = GLOBAL_API_KEY;
+        const apiKey = getGlobalApiKey();
         
         if (apiKey) {
             try {
@@ -65,8 +65,7 @@ const AIChatbot: React.FC = () => {
 
         try {
             if (!chatSessionRef.current) {
-                // SỬA: Lấy từ biến GLOBAL_API_KEY
-                const apiKey = GLOBAL_API_KEY; 
+                const apiKey = getGlobalApiKey();
                 if (!apiKey) throw new Error("API Key missing");
                 const ai = new GoogleGenAI({ apiKey });
                 chatSessionRef.current = ai.chats.create({
@@ -104,7 +103,6 @@ const AIChatbot: React.FC = () => {
     return (
         <>
             {/* Floating Button - Positioned higher on mobile to avoid Bottom Nav */}
-            {/* Mobile: bottom-20 (above nav), Desktop: bottom-6 */}
             <motion.button
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
@@ -132,8 +130,6 @@ const AIChatbot: React.FC = () => {
                             initial={{ opacity: 0, y: 100, scale: 0.9 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 100, scale: 0.9 }}
-                            // Mobile: Inset-0 (Fullscreen) with bottom padding for safe area
-                            // Desktop: Fixed size widget
                             className={`
                                 fixed z-[70] flex flex-col bg-white dark:bg-slate-900 shadow-2xl overflow-hidden
                                 md:bottom-6 md:right-6 md:w-[400px] md:h-[550px] md:rounded-2xl md:border md:border-slate-200 md:dark:border-slate-700

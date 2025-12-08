@@ -2,10 +2,14 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, DRGrade, Patient, ReportData } from "../types";
 
 // NOTE: In a real production app, API calls should be routed through a backend to hide the key.
+// Experience #4: Frontend (Vite) uses import.meta.env.VITE_...
 const getClient = () => {
-  const apiKey = process.env.API_KEY;
+  // Try VITE_ prefix first (Standard Vite), then fallback to process.env (Legacy/Polyfill)
+  const meta = import.meta as any;
+  const apiKey = meta.env?.VITE_GEMINI_API_KEY || process.env.API_KEY;
+  
   if (!apiKey) {
-    throw new Error("API Key not found. Please set process.env.API_KEY");
+    throw new Error("API Key not found. Please set VITE_GEMINI_API_KEY in .env");
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -26,26 +30,26 @@ export const generateClinicalReport = async (
   analysis: AnalysisResult,
   language: 'en' | 'vi' = 'en'
 ): Promise<ReportData> => {
-  const ai = getClient();
-  
-  const gradeText = getGradeName(analysis.grade);
-  
-  const prompt = `
-    Context:
-    A deep learning model has analyzed a fundus image for patient ${patient.name} (Age: ${patient.age}, Gender: ${patient.gender}).
-    Patient History: ${patient.history}.
-    
-    Model Findings:
-    - Diagnosis: ${gradeText} (Grade ${analysis.grade})
-    - Model Confidence: ${(analysis.confidence * 100).toFixed(1)}%
-    
-    Task:
-    Generate a JSON object with two fields in ${language === 'vi' ? 'VIETNAMESE' : 'ENGLISH'} language.
-    1. "clinicalNotes": A professional, concise paragraph for a doctor's medical record, summarizing the automated finding and suggesting standard next steps based on the severity.
-    2. "patientLetter": A gentle, easy-to-understand paragraph addressed to the patient explaining the result and what they should do next. Avoid overly alarming language but be clear about urgency if severe.
-  `;
-
   try {
+    const ai = getClient();
+    
+    const gradeText = getGradeName(analysis.grade);
+    
+    const prompt = `
+      Context:
+      A deep learning model has analyzed a fundus image for patient ${patient.name} (Age: ${patient.age}, Gender: ${patient.gender}).
+      Patient History: ${patient.history}.
+      
+      Model Findings:
+      - Diagnosis: ${gradeText} (Grade ${analysis.grade})
+      - Model Confidence: ${(analysis.confidence * 100).toFixed(1)}%
+      
+      Task:
+      Generate a JSON object with two fields in ${language === 'vi' ? 'VIETNAMESE' : 'ENGLISH'} language.
+      1. "clinicalNotes": A professional, concise paragraph for a doctor's medical record, summarizing the automated finding and suggesting standard next steps based on the severity.
+      2. "patientLetter": A gentle, easy-to-understand paragraph addressed to the patient explaining the result and what they should do next. Avoid overly alarming language but be clear about urgency if severe.
+    `;
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,

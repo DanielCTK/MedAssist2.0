@@ -3,17 +3,23 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
-  // Cast process to any to avoid TS error about missing cwd() method on Process type
   const env = loadEnv(mode, (process as any).cwd(), '');
   
   return {
     plugins: [react()],
     build: {
-      outDir: 'dist', // Standard output directory for Vite
+      outDir: 'dist',
     },
     define: {
-      // Polyfill process.env.API_KEY for the Gemini Service
-      'process.env.API_KEY': JSON.stringify(env.API_KEY)
+      // Experience #4: Polyfill process.env for libraries and consistency
+      // Maps VITE_GEMINI_API_KEY to process.env.API_KEY if needed, or keeps standard access
+      'process.env': {
+        ...process.env,
+        API_KEY: env.VITE_GEMINI_API_KEY,
+        NODE_ENV: JSON.stringify(mode),
+      },
+      // Also ensure VITE_ variables are available globally if needed
+      'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY)
     }
   };
 });
