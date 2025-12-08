@@ -13,7 +13,7 @@
     "lucide-react": "^0.468.0",
     "recharts": "^2.7.2",
     "framer-motion": "^10.12.16",
-    "@google/genai": "^0.1.1",
+    "@google/genai": "^1.31.0",
     "firebase": "^10.8.0",
     "@capacitor/core": "^6.0.0",
     "@capacitor/cli": "^6.0.0",
