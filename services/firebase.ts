@@ -1,7 +1,5 @@
-// services/firebase.ts
-
 import * as firebaseApp from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth"; // Thêm GoogleAuthProvider
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -15,14 +13,12 @@ const firebaseConfig = {
   measurementId: "G-9ZXPF54YSQ"
 };
 
-// Initialize Firebase
+// Initialize Firebase (Modular SDK)
+// Use type casting to bypass potential type definition mismatch for initializeApp
 const app = (firebaseApp as any).initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
-
-// --- THÊM DÒNG NÀY ---
 const googleProvider = new GoogleAuthProvider();
 
-// Xuất googleProvider ra để dùng
 export { auth, db, storage, googleProvider };
