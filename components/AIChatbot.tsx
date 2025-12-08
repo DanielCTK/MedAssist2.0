@@ -13,7 +13,13 @@ interface Message {
 // Experience #4: Frontend (Vite) uses import.meta.env.VITE_...
 const getGlobalApiKey = () => {
     const meta = import.meta as any;
-    return meta.env?.VITE_GEMINI_API_KEY || process.env.API_KEY;
+    try {
+        if (meta && meta.env && meta.env.VITE_GEMINI_API_KEY) {
+            return meta.env.VITE_GEMINI_API_KEY;
+        }
+    } catch(e) {}
+    
+    return process.env.API_KEY;
 };
 
 const AIChatbot: React.FC = () => {

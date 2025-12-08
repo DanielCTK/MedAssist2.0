@@ -8,17 +8,24 @@ import { AnalysisResult, DRGrade } from '../types';
 
 // Determine the Base URL based on environment
 const getApiBaseUrl = () => {
-  // Check if we are in production or if a specific API URL is set in .env
-  // Safely access env using optional chaining
-  const meta = import.meta as any;
-  const envUrl = meta.env?.VITE_API_URL;
-  
-  if (envUrl) return envUrl;
+  // 1. Try process.env (Polyfilled in vite.config.ts)
+  if (process.env.VITE_API_URL) {
+      return process.env.VITE_API_URL;
+  }
 
-  // Experience #1: Hardcoded fallback for Mobile/Production if env var is missing
-  // Using the domain provided in your insights
-  if (meta.env?.PROD) {
-      return "https://med-assist2-0.vercel.app";
+  // 2. Try import.meta.env safely
+  try {
+      const meta = import.meta as any;
+      if (meta && meta.env && meta.env.VITE_API_URL) {
+          return meta.env.VITE_API_URL;
+      }
+      
+      // Experience #1: Hardcoded fallback for Mobile/Production if env var is missing
+      if (meta && meta.env && meta.env.PROD) {
+          return "https://med-assist2-0.vercel.app";
+      }
+  } catch (e) {
+      console.warn("Environment check failed", e);
   }
 
   // Default to localhost for local web development

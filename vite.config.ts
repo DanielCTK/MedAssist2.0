@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
       'process.env': {
         ...process.env,
         API_KEY: env.VITE_GEMINI_API_KEY,
+        VITE_API_URL: env.VITE_API_URL,
         NODE_ENV: JSON.stringify(mode),
       },
       // Also ensure VITE_ variables are available globally if needed

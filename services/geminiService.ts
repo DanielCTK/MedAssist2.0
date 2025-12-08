@@ -6,7 +6,17 @@ import { AnalysisResult, DRGrade, Patient, ReportData } from "../types";
 const getClient = () => {
   // Try VITE_ prefix first (Standard Vite), then fallback to process.env (Legacy/Polyfill)
   const meta = import.meta as any;
-  const apiKey = meta.env?.VITE_GEMINI_API_KEY || process.env.API_KEY;
+  let apiKey;
+  
+  try {
+      if (meta && meta.env && meta.env.VITE_GEMINI_API_KEY) {
+          apiKey = meta.env.VITE_GEMINI_API_KEY;
+      }
+  } catch(e) {}
+
+  if (!apiKey) {
+      apiKey = process.env.API_KEY;
+  }
   
   if (!apiKey) {
     throw new Error("API Key not found. Please set VITE_GEMINI_API_KEY in .env");
