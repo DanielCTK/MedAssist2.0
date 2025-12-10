@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope, CheckCircle2, MessageCircle, X, LayoutDashboard, Users, Eye, Package, Settings, LogOut } from 'lucide-react';
+import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope, CheckCircle2, MessageCircle, X, LayoutDashboard, Users, Eye, Package, Settings, LogOut, BookOpen } from 'lucide-react';
 
 // Relative imports for components in the same directory
 import Sidebar from './Sidebar';
@@ -13,6 +14,7 @@ import SettingsView from './SettingsView';
 import AIChatbot from './AIChatbot';
 import InsightsView from './InsightsView'; 
 import PatientDashboard from './PatientDashboard'; 
+import ReferenceLibrary from './ReferenceLibrary';
 
 // Relative imports for parent directories
 import { useLanguage } from '../contexts/LanguageContext';
@@ -147,7 +149,7 @@ const App: React.FC = () => {
       const results: typeof searchResults = [];
 
       // 1. Navigation Pages
-      ['dashboard', 'patients', 'diagnosis', 'history', 'settings', 'inventory'].forEach(page => {
+      ['dashboard', 'patients', 'diagnosis', 'history', 'settings', 'inventory', 'references'].forEach(page => {
           if (page.includes(q)) {
               results.push({
                   type: 'Page', id: page, title: `Go to ${page.charAt(0).toUpperCase() + page.slice(1)}`,
@@ -421,6 +423,7 @@ const App: React.FC = () => {
                             {currentView === 'patients' && t.sidebar.patients}
                             {currentView === 'diagnosis' && t.sidebar.diagnosis}
                             {currentView === 'history' && t.sidebar.insights}
+                            {currentView === 'references' && t.sidebar.references}
                             {currentView === 'settings' && t.sidebar.settings}
                             {currentView === 'inventory' && t.sidebar.pharmacy}
                         </span>
@@ -556,7 +559,7 @@ const App: React.FC = () => {
                       >
                           <div className="relative">
                             <img 
-                                src={userProfile?.photoURL || currentUser.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop"}
+                                src={userProfile?.photoURL || currentUser.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=200&auto=format&fit=crop"}
                                 className={`w-7 h-7 rounded-full object-cover border-2 transition-colors ${isDarkMode ? 'border-slate-700 group-hover:border-red-500' : 'border-white shadow-sm group-hover:border-blue-500'}`} 
                                 alt="Dr" 
                             />
@@ -615,6 +618,7 @@ const App: React.FC = () => {
                         {currentView === 'patients' && <PatientList isDarkMode={isDarkMode} />}
                         {currentView === 'settings' && <SettingsView userProfile={userProfile} isDarkMode={isDarkMode} onProfileUpdate={setUserProfile} />}
                         {currentView === 'history' && <InsightsView isDarkMode={isDarkMode} currentUser={currentUser} />}
+                        {currentView === 'references' && <ReferenceLibrary isDarkMode={isDarkMode} />}
                       </motion.div>
                    </AnimatePresence>
                    

@@ -1,3 +1,4 @@
+
 export const translations = {
   en: {
     sidebar: {
@@ -6,6 +7,7 @@ export const translations = {
       diagnosis: "Diagnostics",
       pharmacy: "Pharmacy",
       insights: "Insights",
+      references: "Library & Refs",
       settings: "Settings",
       logout: "Logout"
     },
@@ -191,6 +193,7 @@ export const translations = {
       diagnosis: "Chẩn đoán",
       pharmacy: "Kho thuốc",
       insights: "Thông tin chi tiết",
+      references: "Thư Viện Ảnh",
       settings: "Cài đặt",
       logout: "Đăng xuất"
     },

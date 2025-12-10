@@ -120,3 +120,11 @@ export interface ChatSession {
     };
     updatedAt: any;
 }
+
+export interface ReferenceItem {
+    id: string;
+    title: string;
+    category: 'Interface' | 'Research' | 'Article';
+    imageData: string; // Base64 string
+    dateAdded: string;
+}

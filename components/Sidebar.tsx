@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { LayoutDashboard, Eye, Users, Settings, Activity, LogOut, Package, Pill, Loader2 } from 'lucide-react';
+import { LayoutDashboard, Eye, Users, Settings, Activity, LogOut, Package, Pill, Loader2, BookOpen } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface SidebarProps {
@@ -20,8 +21,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isDarkMode, onL
     { id: 'dashboard', label: t.sidebar.dashboard, icon: LayoutDashboard },
     { id: 'patients', label: t.sidebar.patients, icon: Users },
     { id: 'diagnosis', label: t.sidebar.diagnosis, icon: Eye },
-    { id: 'inventory', label: t.sidebar.pharmacy, icon: Package }, // Added back
+    { id: 'inventory', label: t.sidebar.pharmacy, icon: Package },
     { id: 'history', label: t.sidebar.insights, icon: Activity },
+    { id: 'references', label: t.sidebar.references, icon: BookOpen }, // Added Reference Item
   ];
 
   const handleLogoutWrapper = async () => {
