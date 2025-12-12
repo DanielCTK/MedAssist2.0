@@ -5,7 +5,8 @@ import { Activity, ShieldCheck, Menu, Moon, Sun, Lock, Brain, Dna, FileScan, Arr
 import AuthModal from './AuthModal';
 import { useLanguage } from '../contexts/LanguageContext';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { signInAnonymously } from 'firebase/auth';
+import { db, auth } from '../services/firebase';
 
 // ==================================================================================
 // 🖼️ ASSETS & MEDIA CONFIGURATION
@@ -292,6 +293,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
       setSendStatus('sending');
 
       try {
+          // 0. Ensure user is anonymously authenticated to pass Firestore security rules
+          if (!auth.currentUser) {
+              await signInAnonymously(auth);
+          }
+
           // 1. ATTEMPT TO SAVE TO FIREBASE DATABASE
           await addDoc(collection(db, "contact_messages"), {
               name: contactForm.name,
