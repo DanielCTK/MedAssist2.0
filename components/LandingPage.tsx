@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Activity, ShieldCheck, Menu, Moon, Sun, Lock, Brain, Dna, FileScan, ArrowRight, CheckCircle, Zap, X, ChevronRight, FileText, ChevronLeft, LayoutTemplate, Quote, Play, Globe, MapPin, Phone, Mail, Facebook, Twitter, Linkedin, Instagram, ScanEye, Home, Loader2, Send } from 'lucide-react';
 import AuthModal from './AuthModal';
 import { useLanguage } from '../contexts/LanguageContext';
-import emailjs from '@emailjs/browser';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db } from '../services/firebase';
 
 // ==================================================================================
 // 🖼️ ASSETS & MEDIA CONFIGURATION
@@ -283,45 +285,43 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
       setContactForm({ ...contactForm, [e.target.name]: e.target.value });
   };
 
-  const handleContactSubmit = (e: React.FormEvent) => {
+  const handleContactSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!contactForm.name || !contactForm.email || !contactForm.message) return;
 
       setSendStatus('sending');
 
-      // 1. Try sending via EmailJS (Professional, Invisible)
-      // NOTE: You need to sign up at https://www.emailjs.com/ to get your ServiceID, TemplateID, and PublicKey.
-      // Replace the placeholders below.
-      const serviceID = 'YOUR_SERVICE_ID';
-      const templateID = 'YOUR_TEMPLATE_ID';
-      const publicKey = 'YOUR_PUBLIC_KEY';
+      try {
+          // 1. ATTEMPT TO SAVE TO FIREBASE DATABASE
+          await addDoc(collection(db, "contact_messages"), {
+              name: contactForm.name,
+              email: contactForm.email,
+              message: contactForm.message,
+              createdAt: serverTimestamp(),
+              status: 'unread' // Mark as unread for admin
+          });
 
-      const templateParams = {
-          from_name: contactForm.name,
-          from_email: contactForm.email,
-          message: contactForm.message,
-          to_email: 'nguyenthanhdanhk17@siu.edu.vn'
-      };
-
-      // Since we don't have real keys in this demo code, we'll intentionally trigger the catch block 
-      // or simulate success if we had keys. For this demo to "really work" immediately for the user:
-      // We will fallback to `mailto` which works 100% of the time without keys.
-      
-      // Simulate network delay
-      setTimeout(() => {
-          // FALLBACK METHOD: MAILTO (Guaranteed to work without API keys)
-          const subject = `MedAssist Contact: ${contactForm.name}`;
-          const body = `Name: ${contactForm.name}%0D%0AEmail: ${contactForm.email}%0D%0A%0D%0AMessage:%0D%0A${contactForm.message}`;
-          const mailtoLink = `mailto:nguyenthanhdanhk17@siu.edu.vn?subject=${encodeURIComponent(subject)}&body=${body}`; // No encoding on body to keep simple formatting or use encodeURIComponent on parts
-          
-          window.location.href = mailtoLink;
-          
+          // 2. SUCCESS FEEDBACK
           setSendStatus('success');
           setContactForm({ name: '', email: '', message: '' });
           
           // Reset status after 3 seconds
           setTimeout(() => setSendStatus('idle'), 3000);
-      }, 1500);
+
+      } catch (error) {
+          console.error("Firestore save failed, falling back to mailto", error);
+          
+          // 3. FALLBACK: IF DATABASE FAILS, USE MAILTO
+          const subject = `MedAssist Contact: ${contactForm.name}`;
+          const body = `Name: ${contactForm.name}%0D%0AEmail: ${contactForm.email}%0D%0A%0D%0AMessage:%0D%0A${contactForm.message}`;
+          const mailtoLink = `mailto:nguyenthanhdanhctk42@gmail.com?subject=${encodeURIComponent(subject)}&body=${body}`;
+          
+          window.location.href = mailtoLink;
+          
+          setSendStatus('success'); // Still show success as the user action was triggered
+          setContactForm({ name: '', email: '', message: '' });
+          setTimeout(() => setSendStatus('idle'), 3000);
+      }
   };
 
   const t = CONTENT[language]; 
