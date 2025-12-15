@@ -127,4 +127,5 @@ export interface ReferenceItem {
     category: 'Interface' | 'Research' | 'Article';
     imageData: string; // Base64 string
     dateAdded: string;
+    tags?: string[]; // Added tags for better organization
 }
