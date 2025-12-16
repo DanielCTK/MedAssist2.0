@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Users, Calendar as CalendarIcon, ArrowRight, MoreHorizontal, Clock, CheckCircle, XCircle, Phone, Activity, TrendingUp, AlertTriangle, AlertCircle, ChevronDown, Filter, Info, Stethoscope, BedDouble, Check, HeartPulse, ShieldCheck, Thermometer, FileText, Video, MessageSquare, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2, ChevronLeft, ChevronRight, MessageCircle, UserCog, FileBarChart, Siren, Send, User as UserIcon, RefreshCw, Coffee, Minimize2 } from 'lucide-react';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { Users, Calendar as CalendarIcon, Clock, Check, HeartPulse, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2, Activity, MessageSquare, Coffee, FileBarChart, Siren, RefreshCw, UserPlus, Pill, Cpu } from 'lucide-react';
 import { BarChart, Bar, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { subscribeToPatients } from '../services/patientService';
 import { subscribeToAppointments, subscribeToAppointmentsRange, addAppointment, updateAppointmentStatus, updateAppointment, deleteAppointment, subscribeToPendingAppointments } from '../services/scheduleService';
-import { subscribeToUsers, subscribeToMessages, sendMessage, getChatId, subscribeToActiveChats, markChatAsRead } from '../services/chatService';
-import { Patient, Appointment, UserProfile, ChatUser, ChatMessage, ChatSession } from '../types';
+import { Patient, Appointment, UserProfile } from '../types';
 import { User } from 'firebase/auth';
 
 interface DashboardProps {
@@ -16,186 +16,7 @@ interface DashboardProps {
     setView: (view: string) => void;
 }
 
-const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15]; // 8:00 AM to 3:00 PM based on image
-
-// --- EXTRACTED COMPONENTS TO PREVENT RE-RENDER STATE LOSS ---
-
-const ChatInterface = ({
-  isOpen,
-  onClose,
-  isDoctorChat, // true = Colleagues, false = Patients
-  currentUser,
-  activeChats,
-  isDarkMode,
-  myPatients // Passed from parent to ensure we use the correct linked patients
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  isDoctorChat: boolean;
-  currentUser: User | null;
-  activeChats: ChatSession[];
-  isDarkMode: boolean;
-  myPatients: Patient[];
-}) => {
-    // ... (No changes to ChatInterface implementation, keeping it concise) ...
-    // Using existing implementation for brevity as it was not the target of the fix.
-    // However, I need to include it to keep the file valid.
-    const title = isDoctorChat ? "Colleague Chat" : "Patient Messages";
-    const cardClass = isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-100 text-slate-900 shadow-lg shadow-blue-50";
-    
-    const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
-    const [selectedChatUser, setSelectedChatUser] = useState<ChatUser | null>(null);
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [inputMsg, setInputMsg] = useState("");
-    const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const [refreshTrigger, setRefreshTrigger] = useState(0); 
-    
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (isOpen && currentUser) {
-            setIsLoadingUsers(true);
-            if (isDoctorChat) {
-                const unsub = subscribeToUsers(currentUser.uid, (users) => {
-                    setChatUsers(users.filter(u => u.role === 'doctor'));
-                    setIsLoadingUsers(false);
-                    setIsRefreshing(false);
-                });
-                return () => unsub();
-            } else {
-                const validPatients = myPatients
-                    .filter(p => p.uid) 
-                    .map(p => ({
-                        uid: p.uid!, 
-                        displayName: p.name,
-                        email: p.email || '',
-                        photoURL: p.avatarUrl,
-                        role: 'patient'
-                    } as ChatUser));
-                setChatUsers(validPatients);
-                setIsLoadingUsers(false);
-                setIsRefreshing(false);
-                return () => {};
-            }
-        }
-    }, [isOpen, isDoctorChat, currentUser, activeChats, myPatients, refreshTrigger]);
-
-    useEffect(() => {
-        if (currentUser && selectedChatUser) {
-            const chatId = getChatId(currentUser.uid, selectedChatUser.uid);
-            const unsub = subscribeToMessages(chatId, (msgs) => setMessages(msgs));
-            markChatAsRead(chatId);
-            return () => unsub();
-        }
-    }, [currentUser, selectedChatUser, refreshTrigger]);
-
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, selectedChatUser]);
-
-    const handleSendMessage = async () => {
-        if (!inputMsg.trim() || !currentUser || !selectedChatUser) return;
-        const msgToSend = inputMsg;
-        setInputMsg(""); 
-        const chatId = getChatId(currentUser.uid, selectedChatUser.uid);
-        try {
-            await sendMessage(chatId, currentUser.uid, msgToSend);
-        } catch (err) {
-            console.error(err);
-            setInputMsg(msgToSend);
-            alert("Failed to send message");
-        }
-    };
-
-    const handleBackToUserList = () => {
-        setSelectedChatUser(null);
-        setMessages([]);
-    };
-
-    const handleSelectUser = async (user: ChatUser) => {
-        setSelectedChatUser(user);
-        if (currentUser) {
-            const chatId = getChatId(currentUser.uid, user.uid);
-            await markChatAsRead(chatId);
-        }
-    }
-
-    const handleManualRefresh = () => {
-        setIsRefreshing(true);
-        setTimeout(() => setRefreshTrigger(prev => prev + 1), 500); 
-    };
-
-    const resetState = () => {
-        setSelectedChatUser(null);
-        setMessages([]);
-        onClose();
-    }
-
-    return (
-      <AnimatePresence>
-          {isOpen && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4">
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={resetState} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className={`relative w-full h-full md:max-w-md md:h-[600px] flex flex-col md:rounded-2xl border shadow-2xl overflow-hidden ${cardClass}`}>
-                      <div className={`p-4 ${isDoctorChat ? 'bg-indigo-600' : 'bg-teal-600'} text-white flex justify-between items-center shrink-0 safe-top`}>
-                          <div className="flex items-center gap-2">
-                              {selectedChatUser ? (<button onClick={handleBackToUserList}><ChevronLeft size={24}/></button>) : (isDoctorChat ? <UserCog size={24}/> : <MessageCircle size={24}/>)}
-                              <div className="flex flex-col"><span className="font-bold text-base md:text-sm">{selectedChatUser ? selectedChatUser.displayName : title}</span>{selectedChatUser && <span className="text-xs md:text-[10px] opacity-70">{selectedChatUser.role === 'patient' ? 'Patient' : 'Doctor'}</span>}</div>
-                          </div>
-                          <div className="flex items-center gap-4 md:gap-2">
-                              <button onClick={handleManualRefresh} className={`p-1.5 hover:bg-white/20 rounded-full transition-all ${isRefreshing ? 'animate-spin' : ''}`} title="Reload messages"><RefreshCw size={20} /></button>
-                              <button onClick={resetState}><X size={24} /></button>
-                          </div>
-                      </div>
-                      {!selectedChatUser ? (
-                          <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950/50 p-2">
-                              <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500 p-2">{isDoctorChat ? 'Colleagues' : 'Your Patients'}</h4>
-                              {isLoadingUsers ? (<div className="p-10 flex justify-center"><Loader2 className="animate-spin text-slate-400" /></div>) : chatUsers.length === 0 ? (<div className="p-4 text-center text-slate-500 text-xs">{isDoctorChat ? "No colleagues found." : "No linked patients found. Ask patients to link via their profile."}</div>) : (
-                                  <div className="space-y-1">
-                                      {chatUsers.map(user => {
-                                          const chatId = getChatId(currentUser!.uid, user.uid);
-                                          const chatSession = activeChats.find(c => c.id === chatId);
-                                          const hasUnread = chatSession?.lastMessage && !chatSession.lastMessage.seen && chatSession.lastMessage.senderId !== currentUser?.uid;
-                                          return (
-                                              <div key={user.uid} onClick={() => handleSelectUser(user)} className={`flex items-center p-3 rounded-xl cursor-pointer transition-colors hover:bg-slate-200 dark:hover:bg-slate-800 border border-transparent hover:border-slate-300 dark:hover:border-slate-700`}>
-                                                  <div className="relative mr-3"><img src={user.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop"} className="w-12 h-12 md:w-10 md:h-10 rounded-full object-cover" alt="Avatar"/><div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-slate-900 rounded-full"></div></div>
-                                                  <div className="flex-1 min-w-0">
-                                                      <div className="flex justify-between items-center mb-1"><h5 className={`text-sm font-bold truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{user.displayName}</h5>{chatSession?.lastMessage && (<span className="text-[10px] text-slate-400 ml-2 whitespace-nowrap">{chatSession.lastMessage.timestamp ? new Date(chatSession.lastMessage.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}</span>)}</div>
-                                                      <div className="flex justify-between items-center"><p className={`text-xs md:text-[10px] truncate max-w-[200px] md:max-w-[180px] ${hasUnread ? 'font-bold text-slate-800 dark:text-slate-200' : 'text-slate-500'}`}>{chatSession?.lastMessage ? chatSession.lastMessage.text : user.email}</p>{hasUnread && <div className="w-2.5 h-2.5 bg-red-500 rounded-full shrink-0 ml-2"></div>}</div>
-                                                  </div>
-                                                  <ChevronRight size={16} className="ml-2 text-slate-400 shrink-0"/>
-                                              </div>
-                                          );
-                                      })}
-                                  </div>
-                              )}
-                          </div>
-                      ) : (
-                          <div className="flex-1 flex flex-col min-h-0">
-                              <div className="flex-1 overflow-y-auto p-4 space-y-4 md:space-y-3 bg-slate-50 dark:bg-slate-950/50 custom-scrollbar">
-                                  {messages.map((m: any) => {
-                                      const isMe = m.senderId === currentUser?.uid;
-                                      return (
-                                          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                              <div className={`max-w-[85%] md:max-w-[80%] p-3.5 md:p-3 text-sm md:text-xs shadow-sm ${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm' : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-bl-sm'}`}>{m.text}</div>
-                                          </motion.div>
-                                      );
-                                  })}
-                                  <div ref={messagesEndRef} />
-                              </div>
-                              <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex gap-2 shrink-0 safe-bottom">
-                                  <input className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white text-sm md:text-xs p-3.5 md:p-3 rounded-xl outline-none placeholder-slate-500" placeholder="Type a message..." value={inputMsg} onChange={e => setInputMsg(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMessage()}/>
-                                  <button onClick={handleSendMessage} className="p-3.5 md:p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700"><Send size={18}/></button>
-                              </div>
-                          </div>
-                      )}
-                  </motion.div>
-              </div>
-          )}
-      </AnimatePresence>
-    );
-};
+const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15]; 
 
 const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProfile, setView }) => {
   const [viewMode, setViewMode] = useState<'personal' | 'department'>('personal');
@@ -204,12 +25,10 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   const [pendingAppointments, setPendingAppointments] = useState<Appointment[]>([]); 
   
   const [statsData, setStatsData] = useState<{name: string, patients: number}[]>([]);
-  const [activeChats, setActiveChats] = useState<ChatSession[]>([]);
 
   const [patientRefreshTrigger, setPatientRefreshTrigger] = useState(0);
   const [isRefreshingPatients, setIsRefreshingPatients] = useState(false);
 
-  const [scheduleViewType, setScheduleViewType] = useState<'timeline' | 'calendar'>('timeline');
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   const [isApptModalOpen, setIsApptModalOpen] = useState(false);
@@ -225,8 +44,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       date: ''
   });
 
-  const [activeModal, setActiveModal] = useState<'none' | 'chat_patient' | 'chat_doctor' | 'mini_report' | 'emergency'>('none');
-
   const { t, language } = useLanguage();
   
   const cardClass = isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-100 text-slate-900 shadow-lg shadow-blue-50";
@@ -234,6 +51,14 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   const themeBg = isDarkMode ? "bg-red-600" : "bg-blue-600";
   const textMuted = isDarkMode ? "text-slate-400" : "text-slate-500";
   const inputClass = isDarkMode ? "bg-slate-800 border-slate-700 text-white placeholder-slate-500" : "bg-white border-slate-200 text-slate-900 placeholder-slate-400";
+  const hoverEffect = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300 hover:border-blue-400 dark:hover:border-slate-600";
+
+  // Calculations moved to top level
+  const completionRate = useMemo(() => {
+      if (appointments.length === 0) return 0;
+      const done = appointments.filter(a => a.status === 'Done').length;
+      return Math.round((done / appointments.length) * 100);
+  }, [appointments]);
 
   useEffect(() => {
     if (currentUser) {
@@ -244,7 +69,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                 setIsRefreshingPatients(false); 
             },
             (err) => {
-                if (err?.code !== 'permission-denied') console.error("Patient fetch error", err);
                 setIsRefreshingPatients(false);
             }
         );
@@ -259,57 +83,30 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
   };
 
   useEffect(() => {
-      if (currentUser) {
-          const unsub = subscribeToActiveChats(currentUser.uid, (chats) => setActiveChats(chats));
-          return () => unsub();
-      }
-  }, [currentUser]);
-
-  const hasUnreadMessages = useMemo(() => {
-      if (!currentUser) return false;
-      return activeChats.some(chat => 
-          chat.lastMessage && 
-          !chat.lastMessage.seen && 
-          chat.lastMessage.senderId !== currentUser.uid
-      );
-  }, [activeChats, currentUser]);
-
-  // --- SUBSCRIBE TO APPOINTMENTS FOR CALENDAR/GANTT ---
-  useEffect(() => {
       const year = selectedDate.getFullYear();
       const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
       const day = String(selectedDate.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
 
-      // UPDATED: Pass currentUser.uid to filter appointments
       const unsubscribe = subscribeToAppointments(
           dateStr,
-          currentUser?.uid, // Filter by current Doctor
+          currentUser?.uid, 
           (data) => setAppointments(data),
-          (err) => {
-              if (err?.code !== 'permission-denied') console.error("Schedule fetch error", err);
-          }
+          (err) => console.error(err)
       );
       return () => unsubscribe();
   }, [selectedDate, currentUser]);
 
   useEffect(() => {
-      // SỬA: Truyền thêm currentUser?.uid vào vị trí đầu tiên
       const unsubscribe = subscribeToPendingAppointments(
           currentUser?.uid, 
-          (data) => {
-              setPendingAppointments(data);
-          },
-          (err) => {
-              if (err?.code !== 'permission-denied') console.error("Pending fetch error", err);
-          }
+          (data) => setPendingAppointments(data),
+          (err) => console.error(err)
       );
       return () => unsubscribe();
-  }, [currentUser]); // Nhớ thêm currentUser vào dependency
+  }, [currentUser]);
 
-      // UPDATED: Pass currentUser.uid to filter stats
  useEffect(() => {
-      // Hàm helper để format chuẩn YYYY-MM-DD theo giờ địa phương (tránh lệch múi giờ UTC)
       const formatDate = (date: Date) => {
           const year = date.getFullYear();
           const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -319,18 +116,16 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
 
       const end = new Date();
       const start = new Date();
-      start.setDate(end.getDate() - 6); // Lấy 7 ngày gần nhất (tính cả hôm nay)
+      start.setDate(end.getDate() - 6); 
 
       const startStr = formatDate(start);
       const endStr = formatDate(end);
 
-      // Gọi service với bộ lọc Doctor ID
       const unsubscribe = subscribeToAppointmentsRange(
           startStr,
           endStr,   
-          currentUser?.uid, // Chỉ lấy dữ liệu của bác sĩ hiện tại
+          currentUser?.uid,
           (data) => {
-              // 1. Tạo khung dữ liệu rỗng cho 7 ngày (để biểu đồ không bị gãy nếu ngày đó không có khách)
               const counts: Record<string, number> = {};
               for (let i = 0; i < 7; i++) {
                   const d = new Date(start);
@@ -339,33 +134,26 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                   counts[dStr] = 0;
               }
 
-              // 2. Đếm số lượng lịch hẹn
               data.forEach(appt => {
-                  // Chỉ đếm các lịch đã có trong danh sách ngày VÀ KHÔNG PHẢI là 'Pending'
-                  // (Biểu đồ hoạt động chỉ nên tính các ca đã xếp lịch hoặc đã khám)
                   if (counts[appt.date] !== undefined && appt.status !== 'Pending') {
                       counts[appt.date]++;
                   }
               });
 
-              // 3. Chuyển đổi sang mảng và Sắp xếp lại theo ngày tăng dần (Quan trọng)
               const chartData = Object.entries(counts)
-                  .sort(([dateA], [dateB]) => dateA.localeCompare(dateB)) // Sắp xếp A-Z theo chuỗi ngày YYYY-MM-DD
+                  .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
                   .map(([dateStr, count]) => {
                       const date = new Date(dateStr);
-                      // Format tên thứ (Mon, Tue / T2, T3) dựa trên ngôn ngữ
                       const dayName = date.toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', { weekday: 'short' });
                       return { name: dayName, patients: count };
                   });
 
               setStatsData(chartData);
           },
-          (err) => {
-              if (err?.code !== 'permission-denied') console.error("Stats fetch error", err);
-          }
+          (err) => console.error(err)
       );
       return () => unsubscribe();
-  }, [language, currentUser]); // Thêm 'language' vào dependency để khi đổi ngôn ngữ, biểu đồ tự dịch Thứ/Ngày
+  }, [language, currentUser]);
   
   const openAddModal = (typeOverride?: string) => {
       setEditingApptId(null);
@@ -407,7 +195,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       e.preventDefault();
       try {
           const apptData = {
-              doctorId: currentUser?.uid, // UPDATED: Automatically assign to current doctor
+              doctorId: currentUser?.uid, 
               patientId: newAppt.patientId || undefined,
               patientName: newAppt.patientName || 'Unknown',
               title: newAppt.title || 'Checkup',
@@ -460,7 +248,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       return t.dashboard.schedule.types[type] || type;
   };
   
-  const WelcomeBanner = () => {
+  // Render functions instead of inline components to prevent remounting
+  const renderWelcomeBanner = () => {
     const bannerImage = userProfile?.bannerURL || "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=2070&auto=format&fit=crop";
     return (
         <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className={`relative w-full h-48 md:h-64 rounded-2xl overflow-hidden mb-6 flex items-end shadow-2xl group ${isDarkMode ? 'shadow-black/50' : 'shadow-slate-300'} hover:shadow-xl hover:-translate-y-1 transition-all duration-300`}>
@@ -493,28 +282,11 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       );
   };
 
-  const PersonalDashboard = () => {
-      const handleQuickAction = (action: string) => {
-          if (action === 'chat_patient') setActiveModal('chat_patient');
-          else if (action === 'chat_doctor') setActiveModal('chat_doctor');
-          else if (action === 'mini_report') setActiveModal('mini_report');
-          else if (action === 'emergency') setActiveModal('emergency');
-      };
-
-      const completionRate = useMemo(() => {
-          if (appointments.length === 0) return 0;
-          const done = appointments.filter(a => a.status === 'Done').length;
-          return Math.round((done / appointments.length) * 100);
-      }, [appointments]);
-
-      const cardStyle = isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-100 text-slate-900 shadow-lg shadow-blue-50";
-      const hoverEffect = "hover:shadow-xl hover:-translate-y-1 transition-all duration-300 hover:border-blue-400 dark:hover:border-slate-600";
-
-      return (
-        <motion.div initial="hidden" animate="show" variants={{ hidden: {opacity:0}, show: {opacity:1, transition: {staggerChildren: 0.1}} }} className="space-y-3">
+  const renderPersonalDashboard = () => (
+        <div className="space-y-3">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <div className="space-y-3 lg:col-span-1">
-                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} relative overflow-hidden ${hoverEffect}`}>
+                    <div className={`p-4 rounded-xl border ${cardClass} relative overflow-hidden ${hoverEffect}`}>
                         <div className="flex items-center space-x-3 mb-3 relative z-10">
                             <div className="relative">
                                 <img src={userProfile?.photoURL || currentUser?.photoURL || "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=2070&auto=format&fit=crop"} className={`w-12 h-12 rounded-xl object-cover border-2 ${isDarkMode ? 'border-red-500' : 'border-blue-500'} shadow-lg`} alt="Profile" />
@@ -540,9 +312,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                 <p className="text-sm font-black text-green-500">{completionRate}%</p>
                             </div>
                         </div>
-                    </motion.div>
+                    </div>
 
-                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} flex flex-col h-[320px] ${hoverEffect}`}>
+                    <div className={`p-4 rounded-xl border ${cardClass} flex flex-col h-[320px] ${hoverEffect}`}>
                         <div className="flex justify-between items-center mb-3">
                             <h3 className="font-bold text-xs">
                                 {pendingAppointments.length > 0 ? "Inbox & Agenda" : t.dashboard.agenda.title}
@@ -596,39 +368,72 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                 ))
                             )}
                         </div>
-                    </motion.div>
+                    </div>
                 </div>
 
                 <div className="lg:col-span-2 space-y-3">
-                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }}>
-                        <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>{t.dashboard.quick_actions.title}</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div>
+                        <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>Clinical Hub</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                             {[
-                                { id: 'chat_patient', icon: MessageCircle, label: t.dashboard.quick_actions.chat_patient, color: isDarkMode ? 'text-teal-500' : 'text-teal-600', bg: 'bg-teal-500/10', showDot: hasUnreadMessages },
-                                { id: 'chat_doctor', icon: UserCog, label: t.dashboard.quick_actions.chat_doctor, color: 'text-indigo-500', bg: 'bg-indigo-500/10', showDot: false },
-                                { id: 'mini_report', icon: FileBarChart, label: t.dashboard.quick_actions.mini_report, color: 'text-amber-500', bg: 'bg-amber-500/10', showDot: false },
-                                { id: 'emergency', icon: Siren, label: t.dashboard.quick_actions.emergency, color: 'text-red-600', bg: 'bg-red-600/10', showDot: false },
+                                { 
+                                    id: 'diagnosis', 
+                                    icon: ScanEye, 
+                                    label: language === 'vi' ? 'Chẩn đoán AI' : 'AI Scan', 
+                                    desc: language === 'vi' ? 'Bắt đầu quét mới' : 'Start new scan',
+                                    color: 'text-blue-500', 
+                                    bg: 'bg-blue-500/10',
+                                    action: () => setView('diagnosis') 
+                                },
+                                { 
+                                    id: 'patient_add', 
+                                    icon: UserPlus, 
+                                    label: language === 'vi' ? 'Tiếp nhận' : 'Intake', 
+                                    desc: language === 'vi' ? 'Thêm bệnh nhân' : 'Add patient',
+                                    color: 'text-emerald-500', 
+                                    bg: 'bg-emerald-500/10',
+                                    action: () => setView('patients') 
+                                },
+                                { 
+                                    id: 'pharmacy', 
+                                    icon: Pill, 
+                                    label: language === 'vi' ? 'Kho thuốc' : 'Pharmacy', 
+                                    desc: language === 'vi' ? 'Kiểm tra kho' : 'Check stock',
+                                    color: 'text-purple-500', 
+                                    bg: 'bg-purple-500/10',
+                                    action: () => setView('inventory') 
+                                },
+                                { 
+                                    id: 'system_health', 
+                                    icon: Cpu, 
+                                    label: language === 'vi' ? 'Trạng thái' : 'System', 
+                                    desc: 'AI Online • 45ms',
+                                    color: 'text-orange-500', 
+                                    bg: 'bg-orange-500/10',
+                                    action: () => {} 
+                                },
                             ].map((action, i) => (
                                 <motion.button 
                                     key={i}
-                                    whileHover={{ scale: 1.05, y: -3, boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)" }}
+                                    whileHover={{ scale: 1.02, y: -3 }}
                                     whileTap={{ scale: 0.98 }}
-                                    onClick={() => handleQuickAction(action.id)}
-                                    className={`relative p-2.5 rounded-xl border ${cardStyle} flex flex-col items-center justify-center gap-1.5 transition-all hover:${isDarkMode ? 'border-red-700' : 'border-blue-300'}`}
+                                    onClick={action.action}
+                                    className={`relative p-4 rounded-2xl border ${cardClass} flex flex-col items-start justify-between gap-3 transition-all h-[110px] overflow-hidden group hover:border-${action.color.split('-')[1]}-500/50`}
                                 >
-                                    {action.showDot && (
-                                        <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse" />
-                                    )}
-                                    <div className={`p-1.5 rounded-full ${action.bg} ${action.color}`}>
-                                        <action.icon size={16} />
+                                    <div className={`p-2.5 rounded-xl ${action.bg} ${action.color} group-hover:scale-110 transition-transform`}>
+                                        <action.icon size={20} />
                                     </div>
-                                    <span className="text-[9px] font-bold">{action.label}</span>
+                                    <div>
+                                        <h4 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{action.label}</h4>
+                                        <p className="text-[10px] opacity-60 font-medium">{action.desc}</p>
+                                    </div>
+                                    <div className={`absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-${action.color.split('-')[1]}-500/20 to-transparent blur-2xl rounded-full -mr-6 -mt-6 pointer-events-none group-hover:opacity-100 opacity-50 transition-opacity`} />
                                 </motion.button>
                             ))}
                         </div>
-                    </motion.div>
+                    </div>
 
-                    <motion.div variants={{ hidden: {opacity:0, y:10}, show: {opacity:1, y:0} }} className={`p-4 rounded-xl border ${cardStyle} h-[200px] ${hoverEffect}`}>
+                    <div className={`p-4 rounded-xl border ${cardClass} h-[200px] ${hoverEffect}`}>
                         <div className="flex justify-between items-center mb-2">
                             <div><h3 className="font-bold text-xs">{t.dashboard.stats.title} (Last 7 Days)</h3></div>
                             <div className="flex space-x-2"><span className="flex items-center text-[9px] font-bold"><div className={`w-1 h-1 ${isDarkMode ? 'bg-red-500' : 'bg-blue-500'} rounded-full mr-1`}/> Appointments</span></div>
@@ -649,14 +454,13 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                 <div className="w-full h-full flex items-center justify-center opacity-50 text-[10px] uppercase font-bold">No activity data for this week</div>
                             )}
                         </div>
-                    </motion.div>
+                    </div>
                 </div>
             </div>
-        </motion.div>
-      );
-  }
+        </div>
+  );
 
-  const DepartmentDashboard = () => {
+  const renderDepartmentDashboard = () => {
       const activityTypes = ['Surgery', 'Consult', 'Diagnosis', 'Meeting'];
       const getBarColor = (type: string) => {
           switch(type) {
@@ -723,60 +527,15 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       )
   };
 
-  const MiniReportModal = () => {
-        const todayAppointments = appointments.filter(a => a.date === new Date().toISOString().split('T')[0]);
-        const criticalPatients = patients.filter(p => p.status === 'Critical');
-        return (
-          <AnimatePresence>
-              {activeModal === 'mini_report' && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setActiveModal('none')} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-                      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className={`relative w-full max-w-sm p-6 rounded-2xl border shadow-2xl ${cardClass}`}><button onClick={() => setActiveModal('none')} className="absolute top-4 right-4"><X size={18} /></button><h2 className="text-lg font-black uppercase mb-4 flex items-center gap-2"><FileBarChart className="text-amber-500"/> Daily Summary</h2><div className="space-y-4"><div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl flex justify-between items-center"><span className="text-xs font-bold">Total Patients</span><span className="text-xl font-black">{patients.length}</span></div><div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex justify-between items-center text-red-600 dark:text-red-400"><span className="text-xs font-bold">Critical Cases</span><span className="text-xl font-black">{criticalPatients.length}</span></div><div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl flex justify-between items-center"><span className="text-xs font-bold">Today's Appts</span><span className="text-xl font-black">{todayAppointments.length}</span></div></div></motion.div>
-                  </div>
-              )}
-          </AnimatePresence>
-        );
-  }
-
-  const EmergencyModal = () => {
-      return (
-        <AnimatePresence>
-            {activeModal === 'emergency' && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setActiveModal('none')} className="absolute inset-0 bg-red-900/90 backdrop-blur-sm" />
-                    <motion.div initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.5 }} className="relative w-full max-w-sm p-8 rounded-3xl border-4 border-red-500 bg-black text-white text-center shadow-[0_0_50px_rgba(239,68,68,0.5)]">
-                        <Siren size={64} className="mx-auto text-red-500 mb-4 animate-pulse" />
-                        <h2 className="text-2xl font-black uppercase text-red-500 mb-2">Emergency Protocol</h2>
-                        <div className="flex gap-4"><button onClick={() => setActiveModal('none')} className="flex-1 py-3 bg-slate-800 rounded-xl font-bold uppercase text-xs">Cancel</button><button onClick={() => { alert("Emergency Team Dispatched"); setActiveModal('none'); }} className="flex-1 py-3 bg-red-600 hover:bg-red-500 rounded-xl font-bold uppercase text-xs animate-pulse">Activate</button></div>
-                    </motion.div>
-                </div>
-            )}
-        </AnimatePresence>
-      )
-  }
-
   return (
     <div className="h-full flex flex-col">
-        <WelcomeBanner />
+        {renderWelcomeBanner()}
         <div className="flex mb-3 border-b border-slate-200 dark:border-slate-800"><button onClick={() => setViewMode('personal')} className={`pb-1.5 px-3 text-[10px] font-bold uppercase tracking-wider border-b-2 transition-colors ${viewMode === 'personal' ? (isDarkMode ? 'border-red-500 text-red-500' : 'border-blue-500 text-blue-500') : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t.dashboard.tabs.personal}</button><button onClick={() => setViewMode('department')} className={`pb-1.5 px-3 text-[10px] font-bold uppercase tracking-wider border-b-2 transition-colors ${viewMode === 'department' ? (isDarkMode ? 'border-red-500 text-red-500' : 'border-blue-500 text-blue-500') : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t.dashboard.tabs.department}</button></div>
-        <AnimatePresence mode="wait">
-            <motion.div key={viewMode} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.3 }} className="flex-1 overflow-visible">
-                {viewMode === 'personal' ? <PersonalDashboard /> : <DepartmentDashboard />}
-            </motion.div>
-        </AnimatePresence>
-        <MiniReportModal />
         
-        <ChatInterface 
-            isOpen={activeModal === 'chat_patient' || activeModal === 'chat_doctor'}
-            onClose={() => setActiveModal('none')}
-            isDoctorChat={activeModal === 'chat_doctor'}
-            currentUser={currentUser}
-            activeChats={activeChats}
-            isDarkMode={isDarkMode}
-            myPatients={patients} 
-        />
-        
-        <EmergencyModal />
+        {/* Render functions directly instead of as components to maintain DOM stability */}
+        <div className="flex-1 overflow-visible">
+            {viewMode === 'personal' ? renderPersonalDashboard() : renderDepartmentDashboard()}
+        </div>
         
         <AnimatePresence>
             {isApptModalOpen && (

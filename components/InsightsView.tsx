@@ -1,10 +1,9 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
 import { subscribeToPatients } from '../services/patientService';
-import { subscribeToAppointmentsRange } from '../services/scheduleService';
-import { Patient } from '../types';
-import { Loader2, TrendingUp, Users, Activity, AlertTriangle } from 'lucide-react';
+import { Patient, DRGrade } from '../types';
+import { Loader2, TrendingUp, Users, Activity, AlertTriangle, Stethoscope } from 'lucide-react';
 import { User } from 'firebase/auth';
 
 interface InsightsViewProps {
@@ -12,12 +11,12 @@ interface InsightsViewProps {
     currentUser: User | null;
 }
 
-const COLORS = ['#0ea5e9', '#22c55e', '#eab308', '#f97316', '#ef4444'];
+const GRADE_COLORS = ['#22c55e', '#eab308', '#f97316', '#ef4444', '#b91c1c'];
+const AGE_COLORS = ['#3b82f6', '#6366f1', '#8b5cf6', '#d946ef'];
 
 const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) => {
     const [loading, setLoading] = useState(true);
     const [patients, setPatients] = useState<Patient[]>([]);
-    const [weeklyStats, setWeeklyStats] = useState<any[]>([]);
 
     useEffect(() => {
         if (!currentUser) {
@@ -29,56 +28,44 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
             setPatients(data);
             setLoading(false);
         }, (err) => {
-            if (err?.code !== 'permission-denied') console.error(err);
+            console.error(err);
             setLoading(false);
         });
 
-        // Fetch last 7 days appointments for chart
-        const end = new Date();
-        const start = new Date();
-        start.setDate(end.getDate() - 6);
-        const startStr = start.toISOString().split('T')[0];
-        const endStr = end.toISOString().split('T')[0];
-
-        const unsubApps = subscribeToAppointmentsRange(startStr, endStr, currentUser.uid, (apps) => {
-            // Aggregate
-            const counts: Record<string, number> = {};
-            for(let i=0; i<7; i++) {
-                const d = new Date(start);
-                d.setDate(start.getDate() + i);
-                const dKey = d.toISOString().split('T')[0];
-                counts[dKey] = 0;
-            }
-            apps.forEach(a => { if(counts[a.date] !== undefined) counts[a.date]++ });
-            
-            const stats = Object.keys(counts).map(date => ({
-                day: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
-                visits: counts[date]
-            }));
-            setWeeklyStats(stats);
-        }, (err) => {
-            if (err?.code !== 'permission-denied') console.error(err);
-        });
-
-        return () => {
-            unsubscribe();
-            unsubApps();
-        };
+        return () => unsubscribe();
     }, [currentUser]);
 
-    // Calculate Diagnosis Stats
-    const diagnosisData = useMemo(() => {
-        const counts = { "Healthy": 0, "Mild": 0, "Moderate": 0, "Severe": 0, "Proliferative": 0 };
+    // 1. Disease Prevalence (Severity Breakdown)
+    const diseaseData = useMemo(() => {
+        const counts = [0, 0, 0, 0, 0];
         patients.forEach(p => {
-            if (!p.diagnosisHistory || p.diagnosisHistory.length === 0) return;
-            const last = p.diagnosisHistory[p.diagnosisHistory.length - 1];
-            if (last.grade === 0) counts["Healthy"]++;
-            else if (last.grade === 1) counts["Mild"]++;
-            else if (last.grade === 2) counts["Moderate"]++;
-            else if (last.grade === 3) counts["Severe"]++;
-            else counts["Proliferative"]++;
+            if (p.diagnosisHistory && p.diagnosisHistory.length > 0) {
+                const lastGrade = p.diagnosisHistory[p.diagnosisHistory.length - 1].grade;
+                counts[lastGrade]++;
+            } else {
+                // Unscanned patients count as NoDR for now or ignore? Let's assume Healthy/Unscanned as 0
+                counts[0]++;
+            }
         });
-        return Object.keys(counts).map(key => ({ name: key, value: counts[key as keyof typeof counts] })).filter(i => i.value > 0);
+        return [
+            { name: 'Healthy', value: counts[0] },
+            { name: 'Mild NPDR', value: counts[1] },
+            { name: 'Moderate', value: counts[2] },
+            { name: 'Severe', value: counts[3] },
+            { name: 'PDR (Critical)', value: counts[4] },
+        ].filter(i => i.value > 0);
+    }, [patients]);
+
+    // 2. Patient Demographics (Age Groups)
+    const ageData = useMemo(() => {
+        const groups = { "0-20": 0, "21-40": 0, "41-60": 0, "60+": 0 };
+        patients.forEach(p => {
+            if (p.age <= 20) groups["0-20"]++;
+            else if (p.age <= 40) groups["21-40"]++;
+            else if (p.age <= 60) groups["41-60"]++;
+            else groups["60+"]++;
+        });
+        return Object.keys(groups).map(key => ({ name: key, value: groups[key as keyof typeof groups] }));
     }, [patients]);
 
     const cardClass = isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200";
@@ -89,125 +76,140 @@ const InsightsView: React.FC<InsightsViewProps> = ({ isDarkMode, currentUser }) 
     if (loading) return <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin" size={32}/></div>;
 
     const criticalCount = patients.filter(p => p.status === 'Critical').length;
-    const activeCount = patients.filter(p => p.status === 'Active').length;
+    const scannedCount = patients.filter(p => p.diagnosisHistory && p.diagnosisHistory.length > 0).length;
 
     return (
         <div className="h-full overflow-y-auto custom-scrollbar p-4 md:p-6 space-y-6 pb-24">
-            <h1 className={`text-2xl font-black uppercase tracking-tight mb-6 ${textMain}`}>System Insights</h1>
+            <h1 className={`text-2xl font-black uppercase tracking-tight mb-6 ${textMain}`}>Clinical Insights</h1>
 
-            {/* Summary Cards */}
+            {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32 ${hoverEffect}`}>
+                <div className={`p-6 rounded-2xl border ${cardClass} ${hoverEffect}`}>
                     <div className="flex justify-between items-start">
                         <div>
-                            <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Total Patients</p>
+                            <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Patient Base</p>
                             <h3 className={`text-3xl font-black ${textMain}`}>{patients.length}</h3>
                         </div>
-                        <div className="p-3 bg-blue-500/10 text-blue-500 rounded-xl">
-                            <Users size={20} />
-                        </div>
-                    </div>
-                    <div className="flex items-center text-xs text-green-500 font-bold">
-                        <TrendingUp size={12} className="mr-1" /> +2.5% vs last month
+                        <Users className="text-blue-500" />
                     </div>
                 </div>
 
-                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32 ${hoverEffect}`}>
+                <div className={`p-6 rounded-2xl border ${cardClass} ${hoverEffect}`}>
                     <div className="flex justify-between items-start">
                         <div>
-                            <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Critical Cases</p>
+                            <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Screenings Done</p>
+                            <h3 className={`text-3xl font-black text-emerald-500`}>{scannedCount}</h3>
+                        </div>
+                        <Activity className="text-emerald-500" />
+                    </div>
+                </div>
+
+                <div className={`p-6 rounded-2xl border ${cardClass} ${hoverEffect}`}>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Critical (PDR)</p>
                             <h3 className={`text-3xl font-black text-red-500`}>{criticalCount}</h3>
                         </div>
-                        <div className="p-3 bg-red-500/10 text-red-500 rounded-xl">
-                            <AlertTriangle size={20} />
-                        </div>
-                    </div>
-                    <div className="flex items-center text-xs text-red-500 font-bold">
-                        Requires immediate attention
+                        <AlertTriangle className="text-red-500" />
                     </div>
                 </div>
 
-                <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32 ${hoverEffect}`}>
+                <div className={`p-6 rounded-2xl border ${cardClass} ${hoverEffect}`}>
                     <div className="flex justify-between items-start">
                         <div>
-                            <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Active Monitoring</p>
-                            <h3 className={`text-3xl font-black text-orange-500`}>{activeCount}</h3>
+                            <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Avg. Age</p>
+                            <h3 className={`text-3xl font-black text-purple-500`}>
+                                {patients.length > 0 ? Math.round(patients.reduce((acc, p) => acc + p.age, 0) / patients.length) : 0}
+                            </h3>
                         </div>
-                        <div className="p-3 bg-orange-500/10 text-orange-500 rounded-xl">
-                            <Activity size={20} />
-                        </div>
-                    </div>
-                     <div className="flex items-center text-xs text-orange-500 font-bold">
-                        Scheduled for follow-up
-                    </div>
-                </div>
-
-                 <div className={`p-6 rounded-2xl border ${cardClass} flex flex-col justify-between h-32 ${hoverEffect}`}>
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <p className={`text-xs font-bold uppercase tracking-widest ${textSub}`}>Avg. Confidence</p>
-                            <h3 className={`text-3xl font-black text-emerald-500`}>96.5%</h3>
-                        </div>
-                        <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl">
-                            <Activity size={20} />
-                        </div>
-                    </div>
-                    <div className="flex items-center text-xs text-slate-400 font-bold">
-                        AI Model Performance
+                        <Stethoscope className="text-purple-500" />
                     </div>
                 </div>
             </div>
 
-            {/* Charts Section */}
+            {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                 {/* Diagnosis Distribution */}
+                 
+                 {/* DR Severity Distribution */}
                  <div className={`p-6 rounded-2xl border ${cardClass} h-[400px] ${hoverEffect}`}>
-                    <h3 className={`text-lg font-bold mb-6 ${textMain}`}>Diagnosis Distribution</h3>
+                    <h3 className={`text-lg font-bold mb-6 ${textMain} uppercase tracking-wide`}>Diabetic Retinopathy Prevalence</h3>
                     <ResponsiveContainer width="100%" height="85%">
                         <PieChart>
                             <Pie
-                                data={diagnosisData}
+                                data={diseaseData}
+                                cx="50%"
+                                cy="50%"
                                 innerRadius={60}
                                 outerRadius={80}
                                 paddingAngle={5}
                                 dataKey="value"
                             >
-                                {diagnosisData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                {diseaseData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={GRADE_COLORS[index % GRADE_COLORS.length]} />
                                 ))}
                             </Pie>
                             <Tooltip 
                                 contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none' }}
                                 itemStyle={{ color: isDarkMode ? '#fff' : '#000' }}
                             />
+                            <Legend />
                         </PieChart>
                     </ResponsiveContainer>
-                    <div className="flex justify-center gap-4 flex-wrap mt-2">
-                        {diagnosisData.map((entry, index) => (
-                            <div key={index} className="flex items-center text-xs font-bold text-slate-500">
-                                <div className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
-                                {entry.name}
-                            </div>
-                        ))}
-                    </div>
                  </div>
 
-                 {/* Weekly Activity */}
+                 {/* Age Demographics */}
                  <div className={`p-6 rounded-2xl border ${cardClass} h-[400px] ${hoverEffect}`}>
-                    <h3 className={`text-lg font-bold mb-6 ${textMain}`}>Weekly Appointments</h3>
+                    <h3 className={`text-lg font-bold mb-6 ${textMain} uppercase tracking-wide`}>Patient Age Demographics</h3>
                      <ResponsiveContainer width="100%" height="85%">
-                        <BarChart data={weeklyStats}>
+                        <BarChart data={ageData}>
                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} />
-                             <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} dy={10} />
+                             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} dy={10} />
                              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
                              <Tooltip 
                                 cursor={{ fill: isDarkMode ? '#334155' : '#f1f5f9' }}
                                 contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none' }}
                              />
-                             <Bar dataKey="visits" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={30} />
+                             <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={40}>
+                                {ageData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={AGE_COLORS[index % AGE_COLORS.length]} />
+                                ))}
+                             </Bar>
                         </BarChart>
                      </ResponsiveContainer>
                  </div>
+            </div>
+
+            {/* Critical Patient List */}
+            <div className={`p-6 rounded-2xl border ${cardClass} ${hoverEffect}`}>
+                <h3 className="text-lg font-bold mb-4 text-red-500 flex items-center">
+                    <AlertTriangle className="mr-2" size={20}/> High Risk Patients (Requires Action)
+                </h3>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead>
+                            <tr className={`text-xs uppercase tracking-widest border-b ${isDarkMode ? 'border-slate-800 text-slate-500' : 'border-slate-100 text-slate-400'}`}>
+                                <th className="pb-3 pl-2">Name</th>
+                                <th className="pb-3">Diagnosis</th>
+                                <th className="pb-3">Last Exam</th>
+                                <th className="pb-3">Contact</th>
+                            </tr>
+                        </thead>
+                        <tbody className="text-sm">
+                            {patients.filter(p => p.status === 'Critical').length === 0 ? (
+                                <tr><td colSpan={4} className="py-4 text-center text-slate-500 italic">No critical cases.</td></tr>
+                            ) : (
+                                patients.filter(p => p.status === 'Critical').map(p => (
+                                    <tr key={p.id} className={`border-b last:border-0 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                                        <td className={`py-3 pl-2 font-bold ${textMain}`}>{p.name}</td>
+                                        <td className="py-3 text-red-500 font-bold">Proliferative / Severe</td>
+                                        <td className={`py-3 ${textSub}`}>{p.lastExam}</td>
+                                        <td className={`py-3 ${textSub}`}>{p.phone || p.email}</td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );

@@ -1,23 +1,27 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile } from '../types';
-import { updateUserProfile, uploadUserImage, deleteUserProfile } from '../services/userService';
+import { updateUserProfile, uploadUserImage } from '../services/userService';
 import { linkPatientToDoctor } from '../services/patientService';
-import { Save, Loader2, Camera, MapPin, Edit2, Upload, Trash2, LogOut, Check, Image as ImageIcon, Key, ShieldAlert, X, Link as LinkIcon, Stethoscope, AlertTriangle, RefreshCcw, RotateCcw } from 'lucide-react';
+import { Save, Loader2, Camera, MapPin, Edit2, LogOut, Check, Image as ImageIcon, Key, X, Link as LinkIcon, Stethoscope, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
-import { updatePassword, signOut, deleteUser } from "firebase/auth";
+import { updatePassword, signOut } from "firebase/auth";
 import { auth } from '../services/firebase';
 
 interface SettingsViewProps {
     userProfile: UserProfile | null;
     isDarkMode: boolean;
     onProfileUpdate: (newProfile: UserProfile) => void;
+    // Add closeHandler if we want strict click control, but here we assume parent handles view state or we use a "Back" button concept
+    onClose?: () => void; 
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, onProfileUpdate }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, onProfileUpdate, onClose }) => {
     const { t, language } = useLanguage();
     const [formData, setFormData] = useState<UserProfile | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
     
     // Upload states
     const [isUploadingBanner, setIsUploadingBanner] = useState(false);
@@ -38,6 +42,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
 
     const avatarInputRef = useRef<HTMLInputElement>(null);
     const bannerInputRef = useRef<HTMLInputElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     const hoverEffect = "hover:shadow-2xl hover:border-blue-400 dark:hover:border-slate-600 transition-all duration-500";
 
@@ -48,6 +53,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
             setFormData({ ...userProfile });
         }
     }, [userProfile]);
+
+    // Handle Click Outside to Close (Simulated "Modal" behavior within View)
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node) && onClose) {
+                // Check if the click was on a modal (portal) which might be outside this ref but valid
+                // onClose(); 
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [onClose]);
+
+    const handleLogoutWrapper = async () => {
+        setIsLoggingOut(true);
+        try {
+            await signOut(auth);
+            // App component handles redirect on auth state change
+        } catch (e) {
+            console.error(e);
+            setIsLoggingOut(false);
+        }
+    };
 
     const handleSaveField = async (key: keyof UserProfile, value: string) => {
         if (!formData) return;
@@ -195,66 +223,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         }
     };
 
-    // --- FUNCTION: RESET PROFILE (TEST MODE) ---
-    // This allows testing the registration/role selection flow without deleting the Auth account
-    const handleResetProfile = async () => {
-        const msg = language === 'vi'
-            ? "🔄 TEST MODE: Bạn có muốn đặt lại dữ liệu?\nHành động này sẽ XÓA HỒ SƠ nhưng giữ lại tài khoản đăng nhập.\nBạn sẽ được quay lại màn hình 'Chọn Vai Trò' để test lại quy trình."
-            : "🔄 TEST MODE: Reset profile data?\nThis will DELETE your profile but keep your login.\nYou will be returned to the 'Role Selection' screen to test the flow again.";
-
-        if (!confirm(msg)) return;
-
-        setIsSaving(true);
-        try {
-            const user = auth.currentUser;
-            if (user) {
-                // 1. Delete Firestore Data
-                await deleteUserProfile(user.uid);
-                // 2. Force Reload -> App will see null profile -> Show Role Selection
-                window.location.reload();
-            }
-        } catch (error: any) {
-            console.error("Reset error:", error);
-            alert("Reset failed: " + error.message);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    // --- FUNCTION: DELETE ACCOUNT PERMANENTLY ---
-    const handleDeleteAccount = async () => {
-        const msg1 = language === 'vi' 
-            ? "⚠️ CẢNH BÁO: Xóa vĩnh viễn tài khoản?\nHành động này sẽ xóa email đăng nhập và toàn bộ dữ liệu."
-            : "⚠️ DANGER: Permanently delete account?\nThis will remove your login email and all data.";
-        
-        if (!confirm(msg1)) return;
-
-        setIsSaving(true);
-        try {
-            const user = auth.currentUser;
-            if (user) {
-                // 1. Try to delete Firestore Profile first
-                await deleteUserProfile(user.uid).catch(e => console.warn("Profile delete failed, continuing to auth delete", e));
-                
-                // 2. Delete Auth Account (Requires Recent Login)
-                await deleteUser(user);
-                // App will auto-redirect on auth state change
-            }
-        } catch (error: any) {
-            console.error("Delete error:", error);
-            if (error.code === 'auth/requires-recent-login') {
-                const reauthMsg = language === 'vi'
-                    ? "BẢO MẬT: Bạn đã đăng nhập quá lâu.\nVui lòng Đăng xuất -> Đăng nhập lại -> Thử xóa lần nữa."
-                    : "SECURITY: Login session too old.\nPlease Logout -> Login again -> Try deleting again.";
-                alert(reauthMsg);
-            } else {
-                alert("Failed to delete account: " + error.message);
-            }
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
     if (!formData) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin" /></div>;
 
     // Styles
@@ -353,14 +321,33 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
     };
 
     return (
-        <div className="h-full overflow-y-auto custom-scrollbar p-4 md:p-8">
+        // Added onClick to close logic wrapper if this is rendered as a modal-like view
+        <div 
+            className="h-full w-full overflow-y-auto custom-scrollbar p-4 md:p-8 relative" 
+            onClick={(e) => {
+                if (e.target === e.currentTarget && onClose) {
+                    onClose();
+                }
+            }}
+        >
             <motion.div 
+                ref={containerRef}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={`max-w-5xl mx-auto rounded-3xl overflow-hidden shadow-xl border ${borderClass} ${containerClass} ${hoverEffect}`}
             >
                 {/* --- BANNER SECTION --- */}
                 <div className="relative h-48 w-full bg-slate-200 group/banner">
+                    {/* Add Back Button if needed */}
+                    {onClose && (
+                        <button 
+                            onClick={onClose}
+                            className="absolute top-4 left-4 z-20 p-2 bg-black/40 text-white rounded-full hover:bg-black/60 transition-colors"
+                        >
+                            <ChevronLeft size={20} />
+                        </button>
+                    )}
+
                     {formData.bannerURL ? (
                         <img 
                             src={formData.bannerURL} 
@@ -476,6 +463,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                         </div>
                     </div>
 
+                    {/* --- MAIN LOGOUT BUTTON --- */}
+                    <div className="mb-8">
+                        <button 
+                            onClick={handleLogoutWrapper}
+                            disabled={isLoggingOut}
+                            className={`w-full py-4 border-2 border-red-500/20 bg-red-500/5 hover:bg-red-500 hover:text-white text-red-500 rounded-xl font-bold uppercase text-xs tracking-widest flex items-center justify-center transition-all shadow-sm hover:shadow-red-500/30 ${isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                            {isLoggingOut ? <Loader2 size={18} className="animate-spin mr-2"/> : <LogOut size={18} className="mr-2"/>}
+                            Sign Out of Account
+                        </button>
+                    </div>
+
                     {/* --- PATIENT ONLY: CONNECT TO DOCTOR --- */}
                     {isPatient && (
                         <div className={`mb-8 p-6 rounded-2xl border-2 border-dashed ${isDarkMode ? 'bg-indigo-900/10 border-indigo-500/30' : 'bg-indigo-50 border-indigo-200'}`}>
@@ -485,7 +484,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                                         <Stethoscope size={20} className="mr-2"/> Your Assigned Doctor
                                     </h3>
                                     <p className={`text-xs ${labelColor} max-w-lg leading-relaxed`}>
-                                        <AlertTriangle size={12} className="inline mr-1 text-orange-500" />
                                         Important: Enter your doctor's registered email address below. This will link your medical records and enable the private chat channel.
                                     </p>
                                 </div>
@@ -584,41 +582,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                             readOnly
                         />
 
-                    </div>
-
-                    {/* --- DANGER ZONE --- */}
-                    <div className={`mt-12 p-6 rounded-2xl border ${isDarkMode ? 'bg-red-900/10 border-red-500/30' : 'bg-red-50 border-red-200'}`}>
-                        <h3 className="text-red-500 font-black uppercase text-sm tracking-widest mb-4 flex items-center">
-                            <AlertTriangle size={16} className="mr-2"/> {language === 'vi' ? 'Vùng Nguy Hiểm' : 'Danger Zone'}
-                        </h3>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Option 1: Soft Reset (Perfect for Testing) */}
-                            <button 
-                                onClick={handleResetProfile}
-                                disabled={isSaving}
-                                className={`w-full py-4 border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 text-slate-500 dark:text-slate-400 hover:text-blue-500 font-bold rounded-xl uppercase text-xs tracking-widest transition-colors flex flex-col items-center justify-center p-4 gap-2 disabled:opacity-50`}
-                            >
-                                {isSaving ? <Loader2 className="animate-spin" size={20}/> : <RotateCcw size={20} />}
-                                <span>{language === 'vi' ? 'Đặt lại dữ liệu (Test Mode)' : 'Reset Data (Test Mode)'}</span>
-                                <span className="text-[9px] opacity-60 font-normal normal-case text-center px-4">
-                                    {language === 'vi' ? 'Xóa hồ sơ & chọn lại vai trò. Không cần đăng nhập lại.' : 'Clears profile & lets you re-select role. Keeps login.'}
-                                </span>
-                            </button>
-
-                            {/* Option 2: Hard Delete (Account Removal) */}
-                            <button 
-                                onClick={handleDeleteAccount}
-                                disabled={isSaving}
-                                className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl uppercase text-xs tracking-widest transition-colors shadow-lg shadow-red-500/20 flex flex-col items-center justify-center p-4 gap-2 disabled:opacity-50"
-                            >
-                                {isSaving ? <Loader2 className="animate-spin" size={20}/> : <Trash2 size={20} />}
-                                <span>{language === 'vi' ? 'Xóa Tài Khoản Vĩnh Viễn' : 'Delete Account Permanently'}</span>
-                                <span className="text-[9px] opacity-60 font-normal normal-case text-center px-4">
-                                    {language === 'vi' ? 'Xóa email đăng nhập & dữ liệu. Yêu cầu đăng nhập gần đây.' : 'Deletes login & data. Requires recent login.'}
-                                </span>
-                            </button>
-                        </div>
                     </div>
                 </div>
             </motion.div>

@@ -1,5 +1,6 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical, Server, Sparkles } from 'lucide-react';
+import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical, Server, Sparkles, Edit3 } from 'lucide-react';
 import { analyzeImageWithLocalModel } from '../services/localAnalysisService';
 import { generateClinicalReport } from '../services/geminiService';
 import { AnalysisResult, DRGrade, Patient, ReportData, DiagnosisRecord } from '../types';
@@ -33,6 +34,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   const [isReportGenerating, setIsReportGenerating] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [doctorNotes, setDoctorNotes] = useState(""); // NEW
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t, language } = useLanguage();
@@ -67,45 +69,30 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   };
 
   const runAnalysis = async () => {
-      // 1. Reset trạng thái cũ
       setIsAnalyzing(true);
       setAnalysisResult(null);
       setReportData(null);
+      setDoctorNotes(""); // Reset doctor notes on new analysis
 
       try {
-          // ------------------------------------------------------------------
-          // BƯỚC A: GỌI LOCAL MODEL (Kết nối với Python Backend)
-          // ------------------------------------------------------------------
-          // Hàm này giờ đã trả về đúng chuẩn: { grade: 0-4, confidence: 0.99... }
           const result = await analyzeImageWithLocalModel(imageFile);
-          
-          // Lưu ngay kết quả vào State để giao diện hiện màu Xanh/Vàng/Đỏ
           setAnalysisResult(result);
 
-          // ------------------------------------------------------------------
-          // BƯỚC B: GỌI GEMINI (Tạo lời khuyên bác sĩ)
-          // ------------------------------------------------------------------
           setIsReportGenerating(true);
-
-          // Tạo thông tin bệnh nhân giả lập nếu chưa chọn bệnh nhân (để Gemini có ngữ cảnh)
           const currentPatient = patients.find(p => p.id === selectedPatientId) || {
               id: 'temp', 
               name: 'Unknown Patient', 
-              age: 50, // Giả định tuổi để Gemini đưa lời khuyên chung
+              age: 50, 
               gender: 'Other', 
               history: 'No records', 
               lastExam: 'N/A'
           } as Patient;
 
-          // Gửi kết quả số (0-4) cho Gemini để nó "chém gió" ra văn bản chuyên môn
           const report = await generateClinicalReport(currentPatient, result, language);
-          
-          // Lưu báo cáo vào State để hiện ở cột bên phải
           setReportData(report);
 
       } catch (error) {
-          console.error("Quy trình phân tích thất bại:", error);
-          // Không cần alert ở đây nữa vì localAnalysisService đã alert lỗi chi tiết rồi
+          console.error("Analysis failed:", error);
       } finally {
           setIsAnalyzing(false);
           setIsReportGenerating(false);
@@ -120,29 +107,18 @@ const handleSaveToRecord = async () => {
 
       setIsSaving(true);
       try {
-          // 1. Tạo object thô (Raw object)
           const rawRecord = {
               id: Date.now().toString(),
               date: new Date().toISOString(),
-              grade: analysisResult.grade ?? 0, // Dùng ?? để bắt cả null lẫn undefined
+              grade: analysisResult.grade ?? 0,
               confidence: analysisResult.confidence ?? 0,
               note: reportData.clinicalNotes || "No notes available",
-              
-              // QUAN TRỌNG: Kiểm tra cả imagePreview
+              doctorNotes: doctorNotes || "No manual remarks", // NEW
               imageUrl: imagePreview ?? null, 
-
-              // QUAN TRỌNG: analysisResult.heatmapUrl có thể là undefined -> Phải chuyển thành null
               heatmapUrl: analysisResult.heatmapUrl ?? null
           };
 
-          // 2. BƯỚC LÀM SẠCH (NUCLEAR OPTION)
-          // Loại bỏ hoàn toàn mọi key có giá trị undefined bằng cách stringify rồi parse lại
-          // (JSON.stringify sẽ tự động bỏ qua các trường undefined)
           const cleanRecord = JSON.parse(JSON.stringify(rawRecord));
-
-          // Log ra để kiểm tra lần cuối (Bạn sẽ thấy các trường undefined biến mất)
-          console.log("Clean Record to save:", cleanRecord);
-
           await addPatientDiagnosis(selectedPatientId, cleanRecord as DiagnosisRecord);
           alert("Saved to patient record successfully!");
           
@@ -150,6 +126,7 @@ const handleSaveToRecord = async () => {
           setImagePreview(null);
           setAnalysisResult(null);
           setReportData(null);
+          setDoctorNotes("");
           setSelectedPatientId("");
 
       } catch (err) {
@@ -172,13 +149,12 @@ const handleSaveToRecord = async () => {
             animate={{ opacity: 1, x: 0 }}
             className={`w-full md:w-1/2 flex flex-col gap-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
         >
-            {/* SỬA: Giảm padding trên mobile (p-4) để tiết kiệm diện tích */}
             <div className={`p-4 md:p-6 rounded-2xl border flex flex-col flex-1 shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} ${hoverEffect}`}>
             
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-lg font-bold flex items-center">
                     <Scan size={20} className="mr-2 text-blue-500" />
-                    {t.diagnosis.title}
+                    AI Diagnosis
                 </h2>
                 <div className="relative">
                     <select 
@@ -197,7 +173,6 @@ const handleSaveToRecord = async () => {
                 </div>
             </div>
             
-            {/* SỬA: Thêm min-h-[350px] để khung ảnh trên mobile cao và rộng rãi hơn */}
             <div 
                 className={`flex-1 min-h-[350px] md:min-h-0 rounded-xl border-2 border-dashed relative overflow-hidden transition-all group ${
                     imagePreview 
@@ -265,7 +240,7 @@ const handleSaveToRecord = async () => {
             </div>
         </motion.div>
 
-      {/* RIGHT COLUMN: Results */}
+      {/* RIGHT COLUMN: Results & Manual Entry */}
       <motion.div 
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
@@ -280,19 +255,19 @@ const handleSaveToRecord = async () => {
               </div>
           ) : (
               <div className="flex flex-col h-full gap-4">
-                  {/* Grade Card - FROM LOCAL MODEL */}
+                  {/* Grade Card */}
                   <div className={`p-6 rounded-2xl border shadow-lg relative overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} ${hoverEffect}`}>
                       <div className={`absolute top-0 left-0 w-2 h-full`} style={{ backgroundColor: GRADE_COLORS[analysisResult.grade] }} />
                       
                       <div className="flex justify-between items-start mb-4">
                           <div>
-                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Local Core Result</p>
+                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">AI Diagnosis</p>
                               <h2 className="text-2xl font-black uppercase" style={{ color: GRADE_COLORS[analysisResult.grade] }}>
                                   {t.diagnosis.grade_labels[analysisResult.grade]}
                               </h2>
                           </div>
                           <div className="text-right">
-                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Model Confidence</p>
+                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Confidence</p>
                               <p className="text-xl font-bold">{(analysisResult.confidence * 100).toFixed(1)}%</p>
                           </div>
                       </div>
@@ -305,12 +280,6 @@ const handleSaveToRecord = async () => {
                             style={{ backgroundColor: GRADE_COLORS[analysisResult.grade] }}
                           />
                       </div>
-                      
-                      <div className={`mt-4 p-3 rounded-lg border ${isDarkMode ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-100'}`}>
-                          <p className="text-xs font-medium opacity-90 leading-relaxed">
-                              {t.diagnosis.advice[analysisResult.grade]}
-                          </p>
-                      </div>
                   </div>
 
                   {/* Gemini Generated Text Report */}
@@ -319,28 +288,31 @@ const handleSaveToRecord = async () => {
                            <div className="w-6 h-6 rounded bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white font-black italic text-xs mr-3">
                                AI
                            </div>
-                           <h3 className="font-bold text-sm uppercase tracking-wide">Automated Report Writer</h3>
+                           <h3 className="font-bold text-sm uppercase tracking-wide">Automated Findings</h3>
                        </div>
                        
                        {isReportGenerating ? (
                            <div className="flex flex-col items-center justify-center py-10 opacity-60">
                                <Loader2 className="animate-spin mb-3" size={24} />
-                               <p className="text-xs font-bold uppercase">Writing Report...</p>
+                               <p className="text-xs font-bold uppercase">Generating Report...</p>
                            </div>
                        ) : reportData ? (
-                           <div className="space-y-6">
-                               <div>
-                                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Clinical Findings (Generated)</p>
-                                   <p className="text-sm leading-relaxed opacity-90 whitespace-pre-wrap">{reportData.clinicalNotes}</p>
-                               </div>
-                               <div>
-                                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-2">Patient Letter (Generated)</p>
-                                   <div className={`p-4 rounded-xl text-sm italic ${isDarkMode ? 'bg-slate-950 border border-slate-800' : 'bg-slate-50 border border-slate-100'}`}>
-                                       "{reportData.patientLetter}"
-                                   </div>
-                               </div>
-                           </div>
+                           <p className="text-sm leading-relaxed opacity-90 whitespace-pre-wrap">{reportData.clinicalNotes}</p>
                        ) : null}
+                  </div>
+
+                  {/* Manual Doctor Notes */}
+                  <div className={`p-6 rounded-2xl border shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} ${hoverEffect}`}>
+                        <div className="flex items-center mb-2">
+                            <Edit3 size={16} className="mr-2 text-blue-500" />
+                            <h3 className="font-bold text-sm uppercase tracking-wide">Doctor's Manual Diagnosis</h3>
+                        </div>
+                        <textarea 
+                            value={doctorNotes}
+                            onChange={(e) => setDoctorNotes(e.target.value)}
+                            placeholder="Enter your clinical observations, additional findings, or corrections to the AI diagnosis here..."
+                            className={`w-full h-24 p-3 rounded-xl text-sm resize-none outline-none border ${isDarkMode ? 'bg-slate-950 border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'}`}
+                        />
                   </div>
 
                   {/* Action Bar */}

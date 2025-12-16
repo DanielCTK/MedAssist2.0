@@ -29,7 +29,8 @@ export interface DiagnosisRecord {
     date: string;
     grade: DRGrade;
     confidence: number;
-    note: string;
+    note: string; // AI Note
+    doctorNotes?: string; // NEW: Manual Doctor Note
     imageUrl?: string;
 }
 
