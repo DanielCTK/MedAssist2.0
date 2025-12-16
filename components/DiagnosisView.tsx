@@ -100,22 +100,22 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
   };
 
 const handleSaveToRecord = async () => {
-      if (!selectedPatientId || !analysisResult || !reportData) {
-          alert("Please select a patient and ensure analysis is complete.");
-          return;
-      }
+      if (!selectedPatientId || !analysisResult || !reportData) {
+          alert("Please select a patient and ensure analysis is complete.");
+          return;
+      }
 
-      setIsSaving(true);
-      try {
+      setIsSaving(true);
+      try {
           const rawRecord = {
               id: Date.now().toString(),
               date: new Date().toISOString(),
-              grade: analysisResult.grade ?? 0,
-              confidence: analysisResult.confidence ?? 0,
+              grade: Number(analysisResult.grade ?? 0), // Explicit Number cast
+              confidence: Number(analysisResult.confidence ?? 0), // Explicit Number cast
               note: reportData.clinicalNotes || "No notes available",
-              doctorNotes: doctorNotes || "No manual remarks", // NEW
-              imageUrl: imagePreview ?? null, 
-              heatmapUrl: analysisResult.heatmapUrl ?? null
+              doctorNotes: doctorNotes || "No manual remarks", 
+              imageUrl: imagePreview || null, 
+              heatmapUrl: analysisResult.heatmapUrl || null
           };
 
           const cleanRecord = JSON.parse(JSON.stringify(rawRecord));

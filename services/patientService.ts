@@ -1,3 +1,4 @@
+
 import { db } from "./firebase";
 import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, arrayUnion, getDocs, setDoc } from "firebase/firestore";
 import { Patient, DiagnosisRecord, UserProfile } from "../types";
@@ -204,10 +205,23 @@ export const updatePatient = async (id: string, data: Partial<Patient>) => {
 export const addPatientDiagnosis = async (patientId: string, diagnosis: DiagnosisRecord) => {
     try {
         const patientRef = doc(db, COLLECTION_NAME, patientId);
+        
+        // STRICT SANITIZATION: Ensure all properties are primitives to avoid "invalid nested entity" error in arrayUnion
+        const safeDiagnosis = {
+            id: String(diagnosis.id),
+            date: String(diagnosis.date),
+            grade: Number(diagnosis.grade), // Force number
+            confidence: Number(diagnosis.confidence), // Force number
+            note: String(diagnosis.note || ""),
+            doctorNotes: String(diagnosis.doctorNotes || ""),
+            imageUrl: diagnosis.imageUrl ? String(diagnosis.imageUrl) : null,
+            heatmapUrl: diagnosis.heatmapUrl ? String(diagnosis.heatmapUrl) : null
+        };
+
         await updateDoc(patientRef, {
-            diagnosisHistory: arrayUnion(diagnosis),
-            lastExam: diagnosis.date.split('T')[0],
-            status: diagnosis.grade >= 3 ? 'Critical' : 'Active'
+            diagnosisHistory: arrayUnion(safeDiagnosis),
+            lastExam: safeDiagnosis.date.split('T')[0],
+            status: safeDiagnosis.grade >= 3 ? 'Critical' : 'Active'
         });
     } catch (error) {
         console.error("Error adding diagnosis history:", error);

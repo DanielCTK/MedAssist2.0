@@ -32,6 +32,7 @@ export interface DiagnosisRecord {
     note: string; // AI Note
     doctorNotes?: string; // NEW: Manual Doctor Note
     imageUrl?: string;
+    heatmapUrl?: string; // NEW: Optional heatmap URL
 }
 
 export interface Patient {
