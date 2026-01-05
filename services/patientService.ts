@@ -1,8 +1,9 @@
 
-import { db } from "./firebase";
+import { db, firebaseConfig } from "./firebase";
 import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, arrayUnion, getDocs, setDoc } from "firebase/firestore";
 import { Patient, DiagnosisRecord, UserProfile } from "../types";
-import { User } from "firebase/auth";
+import { User, getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { initializeApp, deleteApp } from "firebase/app";
 
 const COLLECTION_NAME = "patients";
 const USERS_COLLECTION = "users";
@@ -167,7 +168,73 @@ export const linkPatientToDoctor = async (patientProfile: UserProfile, doctorEma
     }
 };
 
-// --- ADD PATIENT (Manual by Doctor) ---
+// --- CREATE REAL PATIENT ACCOUNT (DOCTOR FEATURE) ---
+export const createPatientAccount = async (
+    doctorUid: string, 
+    patientData: Omit<Patient, "id" | "doctorUid" | "uid"> & { password?: string }
+) => {
+    // 1. Initialize a secondary Firebase App to create user without logging out the doctor
+    const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+    const secondaryAuth = getAuth(secondaryApp);
+
+    try {
+        if (!patientData.email || !patientData.password) {
+            throw new Error("Email and Password are required to create an account.");
+        }
+
+        // 2. Create Authentication User
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, patientData.email, patientData.password);
+        const newPatientUid = userCredential.user.uid;
+
+        // 3. Create 'users' collection profile (For Patient Login)
+        await setDoc(doc(db, USERS_COLLECTION, newPatientUid), {
+            uid: newPatientUid,
+            role: 'patient',
+            displayName: patientData.name,
+            email: patientData.email,
+            phone: patientData.phone,
+            location: patientData.address,
+            doctorUid: doctorUid, // Link to creating doctor immediately
+            createdAt: serverTimestamp(),
+            photoURL: ''
+        });
+
+        // 4. Create 'patients' collection record (For Doctor's Dashboard)
+        const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+            uid: newPatientUid, // Link to the new Auth UID
+            doctorUid: doctorUid,
+            name: patientData.name,
+            age: patientData.age,
+            gender: patientData.gender,
+            history: patientData.history,
+            phone: patientData.phone,
+            email: patientData.email,
+            address: patientData.address,
+            status: patientData.status || 'Active',
+            createdAt: serverTimestamp(),
+            lastExam: new Date().toISOString().split('T')[0],
+            diagnosisHistory: [],
+            avatarUrl: ''
+        });
+
+        // 5. Cleanup: Sign out the secondary user and delete app instance
+        await signOut(secondaryAuth);
+        await deleteApp(secondaryApp);
+
+        return docRef.id;
+
+    } catch (error: any) {
+        // Cleanup if error
+        await deleteApp(secondaryApp);
+        console.error("Error creating patient account: ", error);
+        if (error.code === 'auth/email-already-in-use') {
+            throw new Error("Email already exists. Cannot create a new account.");
+        }
+        throw error;
+    }
+};
+
+// --- ADD PATIENT (Manual Data Only - Deprecated if using full flow) ---
 export const addPatient = async (doctorUid: string, patientData: Omit<Patient, "id" | "doctorUid">) => {
   if (!doctorUid) throw new Error("Doctor UID is required");
   
@@ -232,6 +299,8 @@ export const addPatientDiagnosis = async (patientId: string, diagnosis: Diagnosi
 // --- DELETE PATIENT ---
 export const deletePatient = async (id: string) => {
   try {
+    // Note: This only deletes the 'patients' record. 
+    // Deleting the Auth user requires Admin SDK or Cloud Functions for security reasons.
     await deleteDoc(doc(db, COLLECTION_NAME, id));
   } catch (error) {
     console.error("Error deleting patient: ", error);

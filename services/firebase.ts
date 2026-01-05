@@ -1,9 +1,10 @@
+
 import * as firebaseApp from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyBHjEDhhFTa4SfX2J5MPNmPzzr39O_iYKs",
   authDomain: "medassist-ed4cd.firebaseapp.com",
   projectId: "medassist-ed4cd",

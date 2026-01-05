@@ -1,10 +1,9 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera, Phone, Mail, ExternalLink, MessageCircle, MapPin, AlertTriangle, Syringe, Eye, Stethoscope, Lock } from 'lucide-react';
 import { Patient, DRGrade, DiagnosisRecord, Appointment } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
-import { subscribeToPatients, addPatient, updatePatient, deletePatient } from '../services/patientService';
+import { subscribeToPatients, addPatient, createPatientAccount, updatePatient, deletePatient } from '../services/patientService';
 import { subscribeToPatientAppointments } from '../services/scheduleService';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { auth } from '../services/firebase';
@@ -176,20 +175,38 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
 
     setIsSaving(true);
     try {
-        await addPatient(currentUser.uid, {
-            name: newPatient.name,
-            age: Number(newPatient.age),
-            gender: newPatient.gender as any,
-            history: newPatient.history || 'None',
-            phone: newPatient.phone || '',
-            email: newPatient.email || '',
-            address: newPatient.address || '',
-            status: newPatient.status as any || 'Active',
-            lastExam: new Date().toISOString().split('T')[0]
-        });
+        // USE THE NEW REAL ACCOUNT CREATION SERVICE
+        if (newPatient.email && newPatient.password) {
+            await createPatientAccount(currentUser.uid, {
+                name: newPatient.name,
+                age: Number(newPatient.age),
+                gender: newPatient.gender as any,
+                history: newPatient.history || 'None',
+                phone: newPatient.phone || '',
+                email: newPatient.email,
+                address: newPatient.address || '',
+                status: newPatient.status as any || 'Active',
+                password: newPatient.password,
+                lastExam: new Date().toISOString().split('T')[0]
+            });
+        } else {
+            // Fallback: Create data-only record if no password (e.g. legacy/fast add)
+            await addPatient(currentUser.uid, {
+                name: newPatient.name,
+                age: Number(newPatient.age),
+                gender: newPatient.gender as any,
+                history: newPatient.history || 'None',
+                phone: newPatient.phone || '',
+                email: newPatient.email || '',
+                address: newPatient.address || '',
+                status: newPatient.status as any || 'Active',
+                lastExam: new Date().toISOString().split('T')[0]
+            });
+        }
         
         setIsAddModalOpen(false);
         setNewPatient({ name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', address: '', status: 'Active', password: '', confirmPassword: '' });
+        alert("Patient account created successfully!");
     } catch (err: any) {
         alert("Error: " + err.message);
     } finally {
@@ -210,12 +227,13 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
       }
   };
 
-  const handleDeletePatient = async () => {
-      if (!selectedPatientId) return;
-      if (confirm("Are you sure you want to delete this patient permanently? This action cannot be undone.")) {
+  const handleDeletePatient = async (id: string, e?: React.MouseEvent) => {
+      if (e) e.stopPropagation();
+      if (!id) return;
+      if (confirm("Are you sure you want to delete this patient record? This action removes them from your list but does not delete their personal account data.")) {
           try {
-              await deletePatient(selectedPatientId);
-              setSelectedPatientId(null);
+              await deletePatient(id);
+              if (selectedPatientId === id) setSelectedPatientId(null);
           } catch (err: any) {
               alert("Delete failed: " + err.message);
           }
@@ -248,9 +266,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const tableHeaderClass = isDarkMode ? "bg-slate-900/50 text-slate-400" : "bg-slate-50 text-slate-500";
   const tableRowHover = isDarkMode ? "hover:bg-slate-800/50" : "hover:bg-slate-50";
 
-  // ... (Rest of Patient Detail View logic remains the same - skipping for brevity as main request is Modal & List)
   if (selectedPatientId && activePatient) {
-      // (Returning existing detailed view code block)
       return (
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
@@ -268,7 +284,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                   <div className={`p-6 rounded-3xl shadow-xl border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} relative overflow-hidden ${hoverEffect}`}>
                       <div className="flex flex-col items-center text-center">
                           {/* UPDATED: Edit Button Positioned Top Right */}
-                          <div className="absolute top-4 right-4 z-10">
+                          <div className="absolute top-4 right-4 z-10 flex gap-2">
                               {isEditing ? (
                                   <button 
                                     onClick={handleCancelEdit}
@@ -278,13 +294,22 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                       <X size={16} />
                                   </button>
                               ) : (
-                                  <button 
-                                    onClick={() => setIsEditing(true)}
-                                    className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-slate-700 transition-colors shadow-sm group"
-                                    title="Edit Profile"
-                                  >
-                                      <Edit2 size={16} className="group-hover:rotate-12 transition-transform" />
-                                  </button>
+                                  <>
+                                    <button 
+                                        onClick={(e) => handleDeletePatient(activePatient.id, e)}
+                                        className="p-2 rounded-full bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/40 transition-colors shadow-sm"
+                                        title="Delete Patient"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                    <button 
+                                        onClick={() => setIsEditing(true)}
+                                        className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-slate-700 transition-colors shadow-sm group"
+                                        title="Edit Profile"
+                                    >
+                                        <Edit2 size={16} className="group-hover:rotate-12 transition-transform" />
+                                    </button>
+                                  </>
                               )}
                           </div>
 
@@ -433,7 +458,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                             {isSaving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} Save Changes
                                         </button>
                                         <button 
-                                            onClick={handleDeletePatient}
+                                            onClick={(e) => handleDeletePatient(activePatient.id, e)}
                                             className={`px-5 rounded-xl font-bold uppercase text-xs tracking-widest text-white bg-red-600 hover:bg-red-500 transition-colors shadow-lg`}
                                             title="Delete Patient"
                                         >
@@ -753,8 +778,17 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                         patient.name.charAt(0)
                                     )}
                                 </div>
-                                <div className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${patient.status === 'Critical' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
-                                    {patient.status}
+                                <div className="flex gap-2">
+                                    <div className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${patient.status === 'Critical' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
+                                        {patient.status}
+                                    </div>
+                                    <button 
+                                        onClick={(e) => handleDeletePatient(patient.id, e)} 
+                                        className="p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors"
+                                        title="Delete"
+                                    >
+                                        <Trash2 size={12} />
+                                    </button>
                                 </div>
                             </div>
                             
@@ -801,7 +835,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                     <th className="p-4">Phone Number</th>
                                     <th className="p-4">Address</th>
                                     <th className="p-4">Blood</th>
-                                    <th className="p-4 pr-6">Triage</th>
+                                    <th className="p-4 pr-6">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -846,7 +880,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                         <tr 
                                             key={patient.id} 
                                             onClick={() => setSelectedPatientId(patient.id)}
-                                            className={`cursor-pointer transition-colors border-b ${isDarkMode ? 'border-slate-800 text-slate-300' : 'border-slate-100 text-slate-700'} ${tableRowHover} last:border-0 hover:bg-slate-100 dark:hover:bg-slate-800`}
+                                            className={`cursor-pointer transition-colors border-b ${isDarkMode ? 'border-slate-800 text-slate-300' : 'border-slate-100 text-slate-700'} ${tableRowHover} last:border-0 hover:bg-slate-100 dark:hover:bg-slate-800 group`}
                                         >
                                             <td className="p-4 pl-6 flex items-center gap-3">
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs overflow-hidden ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>
@@ -864,8 +898,15 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                             <td className="p-4 text-xs font-medium opacity-70">{patient.phone || "N/A"}</td>
                                             <td className="p-4 text-xs font-medium opacity-70 truncate max-w-[150px]">{patient.address || "N/A"}</td>
                                             <td className="p-4 text-xs font-bold">{patient.bloodType || "O+"}</td>
-                                            <td className="p-4 pr-6">
+                                            <td className="p-4 pr-6 flex items-center justify-between">
                                                 {getTriageDisplay()}
+                                                <button 
+                                                    onClick={(e) => handleDeletePatient(patient.id, e)} 
+                                                    className="p-1.5 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
                                             </td>
                                         </tr>
                                     );
@@ -921,6 +962,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                         className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
                                     />
                                 </div>
+                                <p className="text-[10px] text-slate-500 italic mt-1">* Providing password will create a real account for the patient.</p>
                             </div>
                         </div>
 
