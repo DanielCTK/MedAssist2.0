@@ -12,8 +12,7 @@ import Inventory from './Inventory';
 import LandingPage from './LandingPage';
 import LearnMorePage from './LearnMorePage';
 import SettingsView from './SettingsView';
-import AIChatbot from './AIChatbot';
-import HumanChatWidget from './HumanChatWidget'; // NEW
+import HumanChatWidget from './HumanChatWidget'; // This is now the Unified Chat
 import InsightsView from './InsightsView'; 
 import PatientDashboard from './PatientDashboard'; 
 import ReferenceLibrary from './ReferenceLibrary';
@@ -21,7 +20,7 @@ import ReferenceLibrary from './ReferenceLibrary';
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
-import { getUserProfile, subscribeToUserProfile, getUserProfile as createProfile } from '../services/userService';
+import { getUserProfile, subscribeToUserProfile, getUserProfile as createProfile, setUserOnline, setUserOffline } from '../services/userService';
 import { UserProfile, Patient, InventoryItem, ChatSession } from '../types';
 import { subscribeToPatients } from '../services/patientService';
 import { subscribeToInventory } from '../services/inventoryService';
@@ -61,6 +60,26 @@ const App: React.FC = () => {
   const [activeChats, setActiveChats] = useState<ChatSession[]>([]);
   
   const { language, setLanguage, t } = useLanguage();
+
+  // --- PRESENCE MANAGEMENT ---
+  useEffect(() => {
+      if (currentUser) {
+          // Set Online on mount/login
+          setUserOnline(currentUser.uid);
+
+          // Set Offline on window close/tab close
+          const handleBeforeUnload = () => {
+              setUserOffline(currentUser.uid);
+          };
+          window.addEventListener('beforeunload', handleBeforeUnload);
+
+          // Set Offline on component unmount (logout logic handles this separately, but safe to keep)
+          return () => {
+              setUserOffline(currentUser.uid);
+              window.removeEventListener('beforeunload', handleBeforeUnload);
+          };
+      }
+  }, [currentUser]);
 
   useEffect(() => {
     let profileUnsubscribe: (() => void) | null = null;
@@ -140,6 +159,7 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try {
         setIsLoadingAuth(true);
+        if (currentUser) await setUserOffline(currentUser.uid); // Explicit offline before auth signout
         await signOut(auth);
         setUserProfile(null);
         setCurrentUser(null);
@@ -280,7 +300,6 @@ const App: React.FC = () => {
                         {currentView === 'inventory' && <Inventory isDarkMode={isDarkMode} isFullPageView={true} />}
                       </motion.div>
                    </AnimatePresence>
-                   <AIChatbot />
                    <HumanChatWidget currentUser={currentUser} isDarkMode={isDarkMode} activeChats={activeChats} />
                </div>
             </main>

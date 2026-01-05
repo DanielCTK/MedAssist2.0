@@ -1,10 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical, Server, Sparkles, Edit3 } from 'lucide-react';
+import { Upload, X, Microscope, FileText, Check, AlertTriangle, ArrowRight, Loader2, ZoomIn, ZoomOut, Scan, Save, User, FlaskConical, Server, Sparkles, Edit3, RefreshCw } from 'lucide-react';
 import { analyzeImageWithLocalModel } from '../services/localAnalysisService';
 import { generateClinicalReport } from '../services/geminiService';
 import { AnalysisResult, DRGrade, Patient, ReportData, DiagnosisRecord } from '../types';
-import { subscribeToPatients, addPatientDiagnosis } from '../services/patientService';
+import { subscribeToPatients, addPatientDiagnosis, uploadDiagnosisImage } from '../services/patientService';
 import { motion } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
@@ -99,7 +99,7 @@ const DiagnosisView: React.FC<DiagnosisViewProps> = ({ isDarkMode }) => {
       }
   };
 
-const handleSaveToRecord = async () => {
+  const handleSaveToRecord = async () => {
       if (!selectedPatientId || !analysisResult || !reportData) {
           alert("Please select a patient and ensure analysis is complete.");
           return;
@@ -107,31 +107,54 @@ const handleSaveToRecord = async () => {
 
       setIsSaving(true);
       try {
+          let imageUrl = null;
+          
+          // 1. Upload Image to Cloudinary to get URL (Avoids Base64 Firestore limit)
+          if (imageFile) {
+              try {
+                  // Only try to upload if we have a file object.
+                  // If we were in a mode where imageFile was null but preview existed (e.g. webcam), 
+                  // we'd need to convert base64 to blob. Assuming file input here.
+                  imageUrl = await uploadDiagnosisImage(imageFile);
+              } catch (uploadError) {
+                  console.warn("Image upload failed, saving without image to prevent crash", uploadError);
+                  // Optionally alert user: alert("Image upload failed. Record will be saved without image.");
+              }
+          }
+
+          // 2. Prepare Record
           const rawRecord = {
               id: Date.now().toString(),
               date: new Date().toISOString(),
-              grade: Number(analysisResult.grade ?? 0), // Explicit Number cast
-              confidence: Number(analysisResult.confidence ?? 0), // Explicit Number cast
+              grade: Number(analysisResult.grade ?? 0), 
+              confidence: Number(analysisResult.confidence ?? 0), 
               note: reportData.clinicalNotes || "No notes available",
               doctorNotes: doctorNotes || "No manual remarks", 
-              imageUrl: imagePreview || null, 
+              imageUrl: imageUrl, // Save URL, not Base64
               heatmapUrl: analysisResult.heatmapUrl || null
           };
 
+          // 3. Save to Firestore
           const cleanRecord = JSON.parse(JSON.stringify(rawRecord));
           await addPatientDiagnosis(selectedPatientId, cleanRecord as DiagnosisRecord);
           alert("Saved to patient record successfully!");
           
+          // Clear only the analysis data, keep the patient selected for workflow continuity
           setImageFile(null);
           setImagePreview(null);
           setAnalysisResult(null);
           setReportData(null);
           setDoctorNotes("");
-          setSelectedPatientId("");
+          // Note: We DO NOT clear selectedPatientId here anymore.
 
-      } catch (err) {
+      } catch (err: any) {
           console.error(err);
-          alert("Failed to save record.");
+          // Detect size limit error specifically to give better feedback
+          if (err.message && err.message.includes("exceeds the maximum allowed size")) {
+              alert("Error: Patient record is too large. Please archive old data or contact support.");
+          } else {
+              alert("Failed to save record: " + err.message);
+          }
       } finally {
           setIsSaving(false);
       }
@@ -139,6 +162,21 @@ const handleSaveToRecord = async () => {
 
   const triggerFileInput = () => {
     fileInputRef.current?.click();
+  };
+
+  const handlePatientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      setSelectedPatientId(e.target.value);
+      // Safety: Clear previous analysis when switching patients to prevent data mix-up
+      setAnalysisResult(null);
+      setReportData(null);
+      setDoctorNotes("");
+  };
+
+  const clearPatientSelection = () => {
+      setSelectedPatientId("");
+      setAnalysisResult(null);
+      setReportData(null);
+      setDoctorNotes("");
   };
 
   return (
@@ -156,20 +194,31 @@ const handleSaveToRecord = async () => {
                     <Scan size={20} className="mr-2 text-blue-500" />
                     AI Diagnosis
                 </h2>
-                <div className="relative">
-                    <select 
-                        value={selectedPatientId}
-                        onChange={(e) => setSelectedPatientId(e.target.value)}
-                        className={`appearance-none pl-8 pr-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border outline-none cursor-pointer transition-colors ${
-                            isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-blue-500 text-white' : 'bg-slate-100 border-slate-200 focus:border-blue-500 text-slate-900'
-                        }`}
-                    >
-                        <option value="">-- {t.diagnosis.select_placeholder} --</option>
-                        {patients.map(p => (
-                            <option key={p.id} value={p.id}>{p.name} (ID: {p.id.substring(0,4)})</option>
-                        ))}
-                    </select>
-                    <User size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
+                <div className="flex items-center gap-2">
+                    <div className="relative">
+                        <select 
+                            value={selectedPatientId}
+                            onChange={handlePatientChange}
+                            className={`appearance-none pl-8 pr-8 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border outline-none cursor-pointer transition-colors ${
+                                isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-blue-500 text-white' : 'bg-slate-100 border-slate-200 focus:border-blue-500 text-slate-900'
+                            }`}
+                        >
+                            <option value="">-- {t.diagnosis.select_placeholder} --</option>
+                            {patients.map(p => (
+                                <option key={p.id} value={p.id}>{p.name} (ID: {p.id.substring(0,4)})</option>
+                            ))}
+                        </select>
+                        <User size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
+                    </div>
+                    {selectedPatientId && (
+                        <button 
+                            onClick={clearPatientSelection}
+                            className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition-colors"
+                            title="Clear Selection"
+                        >
+                            <RefreshCw size={14} />
+                        </button>
+                    )}
                 </div>
             </div>
             

@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera, Phone, Mail, ExternalLink, MessageCircle, MapPin, AlertTriangle, Syringe, Eye, Stethoscope, Lock } from 'lucide-react';
+import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera, Phone, Mail, ExternalLink, MessageCircle, MapPin, AlertTriangle, Syringe, Eye, Stethoscope, Lock, FileText, ChevronRight, User } from 'lucide-react';
 import { Patient, DRGrade, DiagnosisRecord, Appointment } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -34,6 +35,9 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   // Add Patient Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   
+  // Report History View State
+  const [viewingDiagnosisIndex, setViewingDiagnosisIndex] = useState<number | null>(null);
+
   // Expanded New Patient Form State to include Account details
   const [newPatient, setNewPatient] = useState<{
       name: string;
@@ -78,10 +82,12 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const activePatient = useMemo(() => patients.find(p => p.id === selectedPatientId), [patients, selectedPatientId]);
   
   useEffect(() => {
-      if (activePatient && !isEditing) {
-          setEditForm(activePatient);
+      if (activePatient) {
+          if (!isEditing) setEditForm(activePatient);
+          // Reset diagnosis view when switching patients
+          setViewingDiagnosisIndex(null); 
       }
-  }, [activePatient, isEditing]);
+  }, [activePatient, isEditing, selectedPatientId]); // Added selectedPatientId dependency
 
   // --- NEW: Fetch Real Appointments for Selected Patient ---
   useEffect(() => {
@@ -155,12 +161,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
           confidence: (rec.confidence * 100).toFixed(0),
           note: rec.grade === 0 ? "Healthy" : rec.grade === 1 ? "Mild" : rec.grade === 2 ? "Moderate" : rec.grade === 3 ? "Severe" : "PDR"
       }));
-  }, [activePatient]);
-
-  const latestAdvice = useMemo(() => {
-      if (!activePatient?.diagnosisHistory?.length) return "No diagnosis history available. Please perform a scan.";
-      const last = activePatient.diagnosisHistory[activePatient.diagnosisHistory.length - 1];
-      return last.note || "No specific advice notes recorded for this visit.";
   }, [activePatient]);
 
   const handleSavePatient = async (e: React.FormEvent) => {
@@ -266,6 +266,12 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const tableHeaderClass = isDarkMode ? "bg-slate-900/50 text-slate-400" : "bg-slate-50 text-slate-500";
   const tableRowHover = isDarkMode ? "hover:bg-slate-800/50" : "hover:bg-slate-50";
 
+  // Reverse diagnosis history so newest is first (index 0)
+  const diagnosisHistoryReversed = useMemo(() => {
+      if (!activePatient?.diagnosisHistory) return [];
+      return [...activePatient.diagnosisHistory].reverse();
+  }, [activePatient]);
+
   if (selectedPatientId && activePatient) {
       return (
           <motion.div 
@@ -342,6 +348,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                               </div>
                           </div>
                           
+                          {/* ... (Keep existing Edit Form logic here for brevity, assume no changes to Edit Form layout inside) ... */}
                           {isEditing ? (
                             <div className="w-full mb-4 overflow-y-auto max-h-[60vh] custom-scrollbar px-2 pb-40 border-b border-slate-100 dark:border-slate-800">
                                 <div className="space-y-4 pt-2">
@@ -417,37 +424,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                         </div>
                                     </div>
 
-                                    {/* Edit Blood, Height, Weight */}
-                                    <div className="grid grid-cols-3 gap-3 pt-2">
-                                        <div className="text-center">
-                                            <label className={`text-[10px] uppercase font-bold ${subText} mb-1 block`}>Blood</label>
-                                            <input 
-                                                type="text" 
-                                                value={editForm.bloodType || ''}
-                                                onChange={(e) => setEditForm({...editForm, bloodType: e.target.value})}
-                                                className={`w-full text-center font-bold p-2 rounded-xl border ${inputClass}`}
-                                            />
-                                        </div>
-                                        <div className="text-center">
-                                            <label className={`text-[10px] uppercase font-bold ${subText} mb-1 block`}>Height</label>
-                                            <input 
-                                                type="number" 
-                                                value={editForm.height || ''}
-                                                onChange={(e) => setEditForm({...editForm, height: Number(e.target.value)})}
-                                                className={`w-full text-center font-bold p-2 rounded-xl border ${inputClass}`}
-                                            />
-                                        </div>
-                                        <div className="text-center">
-                                            <label className={`text-[10px] uppercase font-bold ${subText} mb-1 block`}>Weight</label>
-                                            <input 
-                                                type="number" 
-                                                value={editForm.weight || ''}
-                                                onChange={(e) => setEditForm({...editForm, weight: Number(e.target.value)})}
-                                                className={`w-full text-center font-bold p-2 rounded-xl border ${inputClass}`}
-                                            />
-                                        </div>
-                                    </div>
-
                                     {/* ACTION BUTTONS */}
                                     <div className="w-full flex gap-3 pt-6">
                                         <button 
@@ -465,7 +441,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                             <Trash2 size={18} />
                                         </button>
                                     </div>
-                                    
                                     <div className="h-20 w-full opacity-0 pointer-events-none">Spacer</div>
                                 </div>
                             </div>
@@ -587,8 +562,12 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                       </div>
                       <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
                           {activePatient.diagnosisHistory && activePatient.diagnosisHistory.length > 0 ? (
-                              [...activePatient.diagnosisHistory].reverse().map((exam, idx) => (
-                                  <div key={idx} className={`min-w-[200px] p-4 rounded-xl border-l-4 shadow-sm flex-shrink-0 ${isDarkMode ? 'bg-slate-900 border-teal-500' : 'bg-white border-teal-500'} ${hoverEffect}`}>
+                              diagnosisHistoryReversed.map((exam, idx) => (
+                                  <div 
+                                    key={idx} 
+                                    onClick={() => setViewingDiagnosisIndex(idx)}
+                                    className={`min-w-[200px] p-4 rounded-xl border-l-4 shadow-sm flex-shrink-0 cursor-pointer ${isDarkMode ? 'bg-slate-900 border-teal-500' : 'bg-white border-teal-500'} ${hoverEffect}`}
+                                  >
                                       <span className="text-[10px] font-bold text-slate-400 mb-1 block">{new Date(exam.date).toLocaleDateString()}</span>
                                       <h4 className="font-bold text-sm mb-1 truncate">{
                                           exam.grade === 0 ? "Healthy Retina" : 
@@ -654,7 +633,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* UPDATED: Nearest Treatment Card uses synced dates */}
+                      {/* Nearest Treatment Card */}
                       <div className={`p-6 rounded-3xl shadow-lg border ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} ${hoverEffect}`}>
                           <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-4`}>Nearest Treatment</h3>
                           <div className="flex justify-between items-center mb-4">
@@ -663,7 +642,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                           </div>
                           <div className="flex justify-between text-center">
                               {treatmentInfo.days.map((day, i) => {
-                                  // Highlight today or the specific appointment day
                                   const isTarget = treatmentInfo.hasAppointment 
                                       ? day.getDate() === treatmentInfo.date.getDate()
                                       : day.getDate() === new Date().getDate();
@@ -683,18 +661,90 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                           </div>
                       </div>
 
+                      {/* CLINICAL REPORT HISTORY & DETAIL VIEW */}
                       <div className={`p-6 rounded-3xl shadow-lg border relative overflow-hidden ${cardBorder} ${isDarkMode ? 'bg-slate-900' : 'bg-white'} ${hoverEffect}`}>
-                          <div className="relative z-10 flex flex-col h-full">
-                              <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-2`}>Doctor's Advice</h3>
-                              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-                                  <p className={`text-xs ${subText} leading-relaxed whitespace-pre-wrap`}>
-                                      {latestAdvice}
-                                  </p>
+                          {viewingDiagnosisIndex === null ? (
+                              // LIST VIEW
+                              <div className="relative z-10 flex flex-col h-full">
+                                  <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'} mb-4 flex items-center`}>
+                                      <FileText size={18} className="mr-2"/> Clinical Reports
+                                  </h3>
+                                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                                      {diagnosisHistoryReversed.length === 0 ? (
+                                          <p className={`text-xs text-center italic mt-10 ${subText}`}>No reports available.</p>
+                                      ) : (
+                                          diagnosisHistoryReversed.map((record, index) => (
+                                              <div 
+                                                key={index} 
+                                                onClick={() => setViewingDiagnosisIndex(index)}
+                                                className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${isDarkMode ? 'border-slate-800 hover:bg-slate-800' : 'border-slate-100 hover:bg-slate-50'}`}
+                                              >
+                                                  <div className="flex items-center gap-3">
+                                                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                                                          record.grade === 0 ? 'bg-green-100 text-green-600' : 
+                                                          record.grade >= 3 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'
+                                                      }`}>
+                                                          {record.grade}
+                                                      </div>
+                                                      <div>
+                                                          <p className="text-xs font-bold">{new Date(record.date).toLocaleDateString()}</p>
+                                                          <p className={`text-[9px] ${subText} line-clamp-1`}>{record.note || "Auto-generated report..."}</p>
+                                                      </div>
+                                                  </div>
+                                                  <ChevronRight size={14} className={subText} />
+                                              </div>
+                                          ))
+                                      )}
+                                  </div>
                               </div>
-                              <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                                  <a href="#" className="text-[10px] font-bold text-teal-500 underline uppercase tracking-widest">Full Clinical Report</a>
-                              </div>
-                          </div>
+                          ) : (
+                              // DETAIL VIEW
+                              <motion.div 
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="relative z-10 flex flex-col h-full"
+                              >
+                                  <button 
+                                    onClick={() => setViewingDiagnosisIndex(null)}
+                                    className={`flex items-center text-[10px] font-bold uppercase tracking-widest ${subText} hover:${accentText} mb-3`}
+                                  >
+                                      <ChevronLeft size={12} className="mr-1"/> Back to list
+                                  </button>
+                                  
+                                  {(() => {
+                                      const record = diagnosisHistoryReversed[viewingDiagnosisIndex];
+                                      if (!record) return null;
+                                      return (
+                                          <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                                              <div className="flex justify-between items-center mb-3">
+                                                  <span className="font-bold text-sm">{new Date(record.date).toLocaleDateString()}</span>
+                                                  <span className={`text-[10px] px-2 py-1 rounded font-bold ${record.grade === 0 ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
+                                                      Grade {record.grade}
+                                                  </span>
+                                              </div>
+                                              
+                                              <div className="space-y-4">
+                                                  <div>
+                                                      <h4 className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center"><Activity size={10} className="mr-1"/> AI Findings</h4>
+                                                      <p className={`text-xs ${subText} leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg`}>
+                                                          {record.note || "No AI report generated."}
+                                                      </p>
+                                                  </div>
+                                                  
+                                                  {record.doctorNotes && (
+                                                      <div>
+                                                          <h4 className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center"><User size={10} className="mr-1"/> Doctor Notes</h4>
+                                                          <p className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-700'} leading-relaxed italic bg-yellow-50 dark:bg-yellow-900/10 p-2 rounded-lg border border-yellow-100 dark:border-yellow-900/30`}>
+                                                              {record.doctorNotes}
+                                                          </p>
+                                                      </div>
+                                                  )}
+                                              </div>
+                                          </div>
+                                      );
+                                  })()}
+                              </motion.div>
+                          )}
                       </div>
                   </div>
 

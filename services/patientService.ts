@@ -1,12 +1,41 @@
 
 import { db, firebaseConfig } from "./firebase";
-import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, arrayUnion, getDocs, setDoc } from "firebase/firestore";
+import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc, arrayUnion, getDocs, setDoc, writeBatch } from "firebase/firestore";
 import { Patient, DiagnosisRecord, UserProfile } from "../types";
 import { User, getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { initializeApp, deleteApp } from "firebase/app";
 
 const COLLECTION_NAME = "patients";
 const USERS_COLLECTION = "users";
+
+// Cloudinary Configuration (Mirrored from userService for consistency)
+const CLOUD_NAME = "dii5mvade"; 
+const UPLOAD_PRESET = "medassist_preset"; 
+
+// --- UPLOAD HELPER ---
+export const uploadDiagnosisImage = async (file: File): Promise<string> => {
+    try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", UPLOAD_PRESET); 
+        formData.append("folder", "medassist_diagnosis");
+
+        const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+            method: "POST",
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error("Image upload failed");
+        }
+
+        const data = await response.json();
+        return data.secure_url;
+    } catch (error) {
+        console.error("Upload error:", error);
+        throw error;
+    }
+};
 
 // --- GET REAL-TIME PATIENTS FOR SPECIFIC DOCTOR ---
 export const subscribeToPatients = (
@@ -285,6 +314,9 @@ export const addPatientDiagnosis = async (patientId: string, diagnosis: Diagnosi
             heatmapUrl: diagnosis.heatmapUrl ? String(diagnosis.heatmapUrl) : null
         };
 
+        // WARNING: If imageUrl is Base64, this will likely fail Firestore 1MB limit.
+        // The calling component (DiagnosisView) should ensure imageUrl is a URL (from upload) before calling this.
+
         await updateDoc(patientRef, {
             diagnosisHistory: arrayUnion(safeDiagnosis),
             lastExam: safeDiagnosis.date.split('T')[0],
@@ -296,14 +328,33 @@ export const addPatientDiagnosis = async (patientId: string, diagnosis: Diagnosi
     }
 }
 
-// --- DELETE PATIENT ---
+// --- DELETE PATIENT (With Cascading Delete of Appointments) ---
 export const deletePatient = async (id: string) => {
   try {
-    // Note: This only deletes the 'patients' record. 
-    // Deleting the Auth user requires Admin SDK or Cloud Functions for security reasons.
-    await deleteDoc(doc(db, COLLECTION_NAME, id));
+    // We use a Batch Write to ensure both the Patient record and their Appointments are deleted together.
+    const batch = writeBatch(db);
+
+    // 1. Reference the Patient Document
+    const patientRef = doc(db, COLLECTION_NAME, id);
+    batch.delete(patientRef);
+
+    // 2. Find all Appointments associated with this Patient ID
+    // Note: We query the 'appointments' collection where 'patientId' matches.
+    const appointmentsRef = collection(db, "appointments");
+    const q = query(appointmentsRef, where("patientId", "==", id));
+    const snapshot = await getDocs(q);
+
+    // 3. Queue deletion for each appointment found
+    snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+    });
+
+    // 4. Commit the batch
+    await batch.commit();
+    console.log(`Successfully deleted patient ${id} and ${snapshot.size} associated appointments.`);
+
   } catch (error) {
-    console.error("Error deleting patient: ", error);
+    console.error("Error deleting patient and cascading data: ", error);
     throw error;
   }
 };

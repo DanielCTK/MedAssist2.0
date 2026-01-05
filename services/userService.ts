@@ -1,4 +1,5 @@
-import { doc, getDoc, setDoc, updateDoc, onSnapshot, deleteDoc } from "firebase/firestore";
+
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { User } from "firebase/auth";
 import { UserProfile } from "../types";
@@ -28,6 +29,31 @@ export const subscribeToUserProfile = (uid: string, onUpdate: (profile: UserProf
     });
 };
 
+// --- PRESENCE SYSTEM (ONLINE/OFFLINE) ---
+export const setUserOnline = async (uid: string) => {
+    try {
+        const userRef = doc(db, COLLECTION_NAME, uid);
+        await updateDoc(userRef, {
+            isOnline: true,
+            lastSeen: serverTimestamp()
+        });
+    } catch (error) {
+        console.error("Error setting user online:", error);
+    }
+};
+
+export const setUserOffline = async (uid: string) => {
+    try {
+        const userRef = doc(db, COLLECTION_NAME, uid);
+        await updateDoc(userRef, {
+            isOnline: false,
+            lastSeen: serverTimestamp()
+        });
+    } catch (error) {
+        console.error("Error setting user offline:", error);
+    }
+};
+
 // --- GET OR CREATE USER PROFILE ---
 export const getUserProfile = async (user: User, role?: 'doctor' | 'patient'): Promise<UserProfile> => {
     const userRef = doc(db, COLLECTION_NAME, user.uid);
@@ -54,7 +80,9 @@ export const getUserProfile = async (user: User, role?: 'doctor' | 'patient'): P
             location: 'Ho Chi Minh City, Vietnam',
             phone: '',
             bio: defaultRole === 'doctor' ? 'Dedicated medical professional.' : 'Patient account.',
-            language: 'English'
+            language: 'English',
+            isOnline: true,
+            lastSeen: serverTimestamp()
         };
 
         // Only add specific fields if they apply. 

@@ -22,6 +22,8 @@ export interface UserProfile {
   language?: string;
   themePreference?: 'dark' | 'light';
   doctorUid?: string; // For patients linked to a doctor
+  isOnline?: boolean; // NEW: Real-time presence
+  lastSeen?: any;     // NEW: Timestamp
 }
 
 export interface DiagnosisRecord {
@@ -121,6 +123,7 @@ export interface ChatSession {
         seen: boolean;
     };
     updatedAt: any;
+    typing?: Record<string, boolean>; // NEW: Real-time typing status by User UID
 }
 
 export interface ReferenceItem {

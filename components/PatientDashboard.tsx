@@ -3,15 +3,17 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserProfile, Appointment, DiagnosisRecord, ChatMessage } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X, Globe, MapPin, Camera, Loader2, Stethoscope, AlertTriangle, RefreshCw, Check } from 'lucide-react';
+import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X, Globe, MapPin, Camera, Loader2, Stethoscope, AlertTriangle, RefreshCw, Check, ArrowLeft, Eye, Brain, Sparkles, Bot } from 'lucide-react';
 import { User } from 'firebase/auth';
 import SettingsView from './SettingsView';
 import { subscribeToPatientAppointments, addAppointment } from '../services/scheduleService';
-import { subscribeToMessages, sendMessage, getChatId } from '../services/chatService';
+import { subscribeToMessages, sendMessage, getChatId, setTypingStatus, subscribeToChatMetadata } from '../services/chatService';
 import { checkAndAutoLinkPatient } from '../services/patientService'; 
+import { subscribeToUserProfile } from '../services/userService'; 
 import { collection, query, where, getDocs, limit, onSnapshot, or } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { GoogleGenAI } from "@google/genai";
 
 interface PatientDashboardProps {
     isDarkMode: boolean;
@@ -29,6 +31,43 @@ const APPOINTMENT_TYPES = [
 
 const AVAILABLE_HOURS = [8, 9, 10, 11, 13, 14, 15, 16];
 
+// --- HELPER TO GET API KEY SAFELY ---
+const getGlobalApiKey = () => {
+    const meta = import.meta as any;
+    try {
+        // Priority 1: Vite Environment Variable
+        if (meta && meta.env && meta.env.VITE_GEMINI_API_KEY) {
+            return meta.env.VITE_GEMINI_API_KEY;
+        }
+    } catch(e) {}
+    
+    // Priority 2: Process Env (Polyfilled or Node)
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+        return process.env.API_KEY;
+    }
+    
+    return null;
+};
+
+// --- TYPING ANIMATION COMPONENT ---
+const TypingIndicator = ({ isDarkMode }: { isDarkMode: boolean }) => (
+    <div className={`flex items-center space-x-1 p-3 rounded-2xl rounded-bl-sm w-16 h-10 mb-2 ${isDarkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-100 shadow-sm"}`}>
+        {[0, 1, 2].map((i) => (
+            <motion.div
+                key={i}
+                className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? "bg-slate-400" : "bg-slate-500"}`}
+                animate={{ y: [0, -5, 0] }}
+                transition={{
+                    duration: 0.6,
+                    repeat: Infinity,
+                    delay: i * 0.2,
+                    ease: "easeInOut"
+                }}
+            />
+        ))}
+    </div>
+);
+
 const TabButton = ({ id, icon: Icon, label, currentTab, setCurrentTab, isDarkMode }: { id: TabID, icon: any, label: string, currentTab: TabID, setCurrentTab: (id: TabID) => void, isDarkMode: boolean }) => (
     <button 
         onClick={() => setCurrentTab(id)}
@@ -41,40 +80,34 @@ const TabButton = ({ id, icon: Icon, label, currentTab, setCurrentTab, isDarkMod
     </button>
 );
 
-const RecordCard: React.FC<{ record: DiagnosisRecord; isDarkMode: boolean }> = ({ record, isDarkMode }) => (
-    <div className={`p-4 rounded-2xl mb-4 border flex items-center justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-xl cursor-pointer ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-blue-200'}`}>
-        <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${
-                record.grade === 0 ? 'bg-emerald-100 text-emerald-600' : 
-                record.grade <= 2 ? 'bg-blue-100 text-blue-600' : 
-                'bg-red-100 text-red-600'
-            }`}>
-                {record.grade === 0 ? 'A' : record.grade <= 2 ? 'B' : 'C'}
-            </div>
-            <div>
-                <p className="text-xs font-bold opacity-50 uppercase tracking-wider">{new Date(record.date).toLocaleDateString()}</p>
-                <h4 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                    {record.grade === 0 ? "Healthy Retina" : `Diabetic Retinopathy (Stage ${record.grade})`}
-                </h4>
-            </div>
-        </div>
-        <ChevronRight size={16} className="opacity-30" />
-    </div>
-);
-
 const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, currentUser, userProfile, onLogout, toggleTheme }) => {
     const { t, language, setLanguage } = useLanguage();
     const [currentTab, setCurrentTab] = useState<TabID>('home');
     const [myAppointments, setMyAppointments] = useState<Appointment[]>([]);
     const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisRecord[]>([]);
     const [assignedDoctorId, setAssignedDoctorId] = useState<string | null>(null);
+    const [assignedDoctorProfile, setAssignedDoctorProfile] = useState<UserProfile | null>(null); 
     const [loading, setLoading] = useState(true);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
 
-    // Chat State
+    // Record Detail View State
+    const [selectedRecord, setSelectedRecord] = useState<DiagnosisRecord | null>(null);
+
+    // Chat State (Doctor)
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputMsg, setInputMsg] = useState("");
+    const [isDoctorTyping, setIsDoctorTyping] = useState(false);
+    const typingTimeoutRef = useRef<any>(null);
+    
+    // Chat State (AI)
+    const [chatMode, setChatMode] = useState<'doctor' | 'ai'>('doctor');
+    const [aiMessages, setAiMessages] = useState<{id: string, text: string, sender: 'user'|'ai', timestamp: Date}[]>([
+        { id: 'welcome', text: language === 'vi' ? "Xin chào! Tôi là Trợ lý AI. Bạn cần tư vấn gì về sức khỏe mắt hôm nay?" : "Hello! I am your AI Assistant. How can I help with your eye health today?", sender: 'ai', timestamp: new Date() }
+    ]);
+    const [aiInputMsg, setAiInputMsg] = useState("");
+    const [isAiThinking, setIsAiThinking] = useState(false);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Add Appointment Modal
@@ -88,25 +121,20 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     const dateInputRef = useRef<HTMLInputElement>(null);
     const openDatePicker = () => {
         try {
-            dateInputRef.current?.showPicker(); // Modern API
+            dateInputRef.current?.showPicker(); 
         } catch {
-            dateInputRef.current?.focus(); // Fallback
+            dateInputRef.current?.focus(); 
         }
     };
 
     // --- CHART DATA PROCESSING ---
     const chartData = useMemo(() => {
         if (!diagnosisHistory || diagnosisHistory.length === 0) return [];
-        
-        // Sort ascending by date
-        const sorted = [...diagnosisHistory].sort((a,b) => 
-            new Date(a.date).getTime() - new Date(b.date).getTime()
-        );
-
+        const sorted = [...diagnosisHistory].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         return sorted.map(rec => ({
             date: new Date(rec.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             fullDate: new Date(rec.date).toLocaleDateString(),
-            grade: rec.grade, // 0-4
+            grade: rec.grade,
             confidence: (rec.confidence * 100).toFixed(0),
             note: rec.grade === 0 ? "Healthy" : `Stage ${rec.grade}`
         }));
@@ -117,9 +145,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         const attemptAutoLink = async () => {
             if (currentUser && userProfile && !userProfile.doctorUid) {
                 const foundDoctorId = await checkAndAutoLinkPatient(currentUser, userProfile);
-                if (foundDoctorId) {
-                    setAssignedDoctorId(foundDoctorId);
-                }
+                if (foundDoctorId) setAssignedDoctorId(foundDoctorId);
             } else if (userProfile?.doctorUid) {
                 setAssignedDoctorId(userProfile.doctorUid);
             }
@@ -127,17 +153,24 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         attemptAutoLink();
     }, [currentUser, userProfile]);
 
-    // --- MANUAL SYNC FUNCTION ---
+    // --- FETCH DOCTOR STATUS ---
+    useEffect(() => {
+        if (assignedDoctorId) {
+            const unsub = subscribeToUserProfile(assignedDoctorId, (docProfile) => {
+                setAssignedDoctorProfile(docProfile);
+            });
+            return () => unsub();
+        }
+    }, [assignedDoctorId]);
+
+    // --- MANUAL SYNC ---
     const handleManualSync = async () => {
         if (!currentUser || !userProfile) return;
         setIsSyncing(true);
         try {
             const doctorId = await checkAndAutoLinkPatient(currentUser, userProfile);
-            if (doctorId) {
-                setAssignedDoctorId(doctorId);
-            } else if (userProfile.doctorUid) {
-                setAssignedDoctorId(userProfile.doctorUid);
-            }
+            if (doctorId) setAssignedDoctorId(doctorId);
+            else if (userProfile.doctorUid) setAssignedDoctorId(userProfile.doctorUid);
             await new Promise(resolve => setTimeout(resolve, 800));
             alert(t.patientDashboard.sync_success || "Data synchronized with Doctor.");
         } catch (error) {
@@ -148,89 +181,150 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         }
     };
 
-    // --- DATA FETCHING & SYNCHRONIZATION ---
+    // --- DATA FETCHING ---
     useEffect(() => {
         if (!currentUser) return;
         setLoading(true);
-
-        const unsubAppt = subscribeToPatientAppointments(
-                currentUser.uid, 
-                    (data) => {
-                        setMyAppointments(data);
-                    }, 
-                    (err) => {
-                        if (err?.code !== 'permission-denied') console.error("Appointment fetch error", err);
-                    }
-                );
-
-        let unsubPatientData: () => void = () => {};
+        const unsubAppt = subscribeToPatientAppointments(currentUser.uid, (data) => setMyAppointments(data), (err) => console.error(err));
         
+        let unsubPatientData: () => void = () => {};
         const fetchPatientData = async () => {
             let q;
-            if (currentUser.uid) {
-                 q = query(collection(db, "patients"), where("uid", "==", currentUser.uid), limit(1));
-            } else if (currentUser.email) {
-                 q = query(collection(db, "patients"), where("email", "==", currentUser.email), limit(1));
-            } else {
-                return;
-            }
+            if (currentUser.uid) q = query(collection(db, "patients"), where("uid", "==", currentUser.uid), limit(1));
+            else if (currentUser.email) q = query(collection(db, "patients"), where("email", "==", currentUser.email), limit(1));
+            else return;
             
             unsubPatientData = onSnapshot(q, (snapshot) => {
                 if (!snapshot.empty) {
                     const patientDoc = snapshot.docs[0].data();
-                    if (patientDoc.diagnosisHistory) {
-                        setDiagnosisHistory(patientDoc.diagnosisHistory.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-                    }
-                    if (!userProfile?.doctorUid && patientDoc.doctorUid) {
-                        setAssignedDoctorId(patientDoc.doctorUid);
-                    }
+                    if (patientDoc.diagnosisHistory) setDiagnosisHistory(patientDoc.diagnosisHistory.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+                    if (!userProfile?.doctorUid && patientDoc.doctorUid) setAssignedDoctorId(patientDoc.doctorUid);
                 }
-            }, (err) => {
-                if (err?.code !== 'permission-denied') console.error(err);
-            });
+            }, (err) => console.error(err));
         };
         fetchPatientData();
-
-        return () => {
-            unsubAppt();
-            unsubPatientData();
-        };
+        return () => { unsubAppt(); unsubPatientData(); };
     }, [currentUser, userProfile]);
 
-    // --- CHAT SUBSCRIPTION ---
+    // --- CHAT SUBSCRIPTION (DOCTOR) ---
     useEffect(() => {
-        if (currentUser && currentTab === 'chat' && assignedDoctorId) {
+        if (currentUser && currentTab === 'chat' && assignedDoctorId && chatMode === 'doctor') {
             const chatId = getChatId(currentUser.uid, assignedDoctorId);
-            const unsubChat = subscribeToMessages(chatId, (msgs) => {
-                setMessages(msgs);
+            
+            const unsubChat = subscribeToMessages(chatId, (msgs) => setMessages(msgs));
+            
+            const unsubMeta = subscribeToChatMetadata(chatId, (session) => {
+                if (session && session.typing) {
+                    setIsDoctorTyping(!!session.typing[assignedDoctorId]);
+                } else {
+                    setIsDoctorTyping(false);
+                }
             });
-            return () => unsubChat();
+
+            return () => { unsubChat(); unsubMeta(); setIsDoctorTyping(false); };
         }
-    }, [currentUser, currentTab, assignedDoctorId]);
+    }, [currentUser, currentTab, assignedDoctorId, chatMode]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, currentTab]);
+    }, [messages, currentTab, chatMode, aiMessages, isDoctorTyping]);
 
-    const handleSendMessage = async () => {
-        if (!inputMsg.trim() || !currentUser || !assignedDoctorId) return;
+    // --- INPUT CHANGE (TYPING LOGIC) ---
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setInputMsg(e.target.value);
+        if (!currentUser || !assignedDoctorId) return;
+
         const chatId = getChatId(currentUser.uid, assignedDoctorId);
-        await sendMessage(chatId, currentUser.uid, inputMsg);
-        setInputMsg("");
+        setTypingStatus(chatId, currentUser.uid, true);
+
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+            setTypingStatus(chatId, currentUser.uid, false);
+        }, 2000);
     };
 
+    // --- SEND HANDLERS ---
+    const handleSendMessage = async () => {
+        if (!inputMsg.trim() || !currentUser || !assignedDoctorId) return;
+        const text = inputMsg;
+        setInputMsg(""); // Optimistic Clear
+        
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        
+        // Optimistic UI Update
+        const tempMsg: ChatMessage = { id: `temp-${Date.now()}`, text, senderId: currentUser.uid, createdAt: { toMillis: () => Date.now() } };
+        setMessages(prev => [...prev, tempMsg]);
+
+        const chatId = getChatId(currentUser.uid, assignedDoctorId);
+        await sendMessage(chatId, currentUser.uid, text);
+    };
+
+    const handleSendAI = async () => {
+        if (!aiInputMsg.trim()) return;
+        const text = aiInputMsg;
+        setAiInputMsg("");
+        
+        // Optimistic UI
+        setAiMessages(prev => [...prev, { id: Date.now().toString(), text, sender: 'user', timestamp: new Date() }]);
+        setIsAiThinking(true);
+
+        try {
+            const apiKey = getGlobalApiKey();
+            
+            if (!apiKey) {
+                throw new Error("API_KEY_MISSING");
+            }
+            
+            const ai = new GoogleGenAI({ apiKey });
+            // Corrected: Use ai.models.generateContent directly
+            const response = await ai.models.generateContent({ 
+                model: 'gemini-2.5-flash',
+                contents: text,
+                config: {
+                    systemInstruction: language === 'vi' 
+                        ? "Bạn là trợ lý y tế ảo thân thiện. Hãy trả lời ngắn gọn, dễ hiểu cho bệnh nhân về các vấn đề mắt và sức khỏe. Nếu nguy cấp, khuyên đi khám ngay." 
+                        : "You are a friendly medical AI assistant. Provide concise, easy-to-understand answers about eye health. If urgent, advise seeing a doctor immediately."
+                }
+            });
+            
+            // Corrected: Access response.text directly (it's a property, not a function)
+            const responseText = response.text || (language === 'vi' ? "Không có phản hồi." : "No response.");
+
+            setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: responseText, sender: 'ai', timestamp: new Date() }]);
+        } catch (error: any) {
+            console.error("AI Error:", error);
+            
+            let errorMessage = language === 'vi' 
+                ? "Xin lỗi, đã xảy ra lỗi kết nối." 
+                : "Sorry, a connection error occurred.";
+
+            if (error.message === "API_KEY_MISSING") {
+                errorMessage = language === 'vi' 
+                    ? "Lỗi cấu hình: Thiếu API Key trong file .env" 
+                    : "Config Error: Missing API Key in .env file";
+            }
+
+            setAiMessages(prev => [...prev, { 
+                id: (Date.now()+1).toString(), 
+                text: errorMessage, 
+                sender: 'ai', 
+                timestamp: new Date() 
+            }]);
+        } finally {
+            setIsAiThinking(false);
+        }
+    };
+
+    // --- BOOKING LOGIC ---
     const handleBookAppointment = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newBookDate || !currentUser) return;
-        
         if (!assignedDoctorId) {
             alert(language === 'vi' ? "Vui lòng liên kết với bác sĩ trước khi đặt lịch." : "Please link with a doctor before booking.");
             setCurrentTab('profile'); 
             return;
         }
-        
         const finalTitle = newBookReason ? `${selectedReasonType}: ${newBookReason}` : selectedReasonType;
-
         try {
             await addAppointment({
                 doctorId: assignedDoctorId, 
@@ -244,11 +338,10 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                 status: 'Pending',
                 notes: newBookReason
             });
-            alert(language === 'vi' ? "Yêu cầu đã gửi thành công! Bác sĩ sẽ xác nhận sớm." : "Appointment request sent! Doctor will confirm.");
+            alert(language === 'vi' ? "Yêu cầu đã gửi thành công!" : "Request sent successfully!");
             setIsBookModalOpen(false);
             setNewBookReason("");
             setNewBookDate("");
-            setSelectedReasonType(APPOINTMENT_TYPES[0]);
         } catch (e) {
             alert("Failed to book.");
         }
@@ -272,6 +365,11 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     const latestScan = diagnosisHistory.length > 0 ? diagnosisHistory[0] : null;
     const heroBackground = userProfile?.bannerURL || "https://images.unsplash.com/photo-1519681393798-38e43269d877?q=80&w=2070&auto=format&fit=crop";
     const todayStr = new Date().toISOString().split('T')[0];
+    const isDoctorOnline = assignedDoctorProfile?.isOnline ?? false;
+
+    // Styles
+    const bubbleUser = "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-md rounded-br-sm";
+    const bubbleOther = isDarkMode ? "bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-sm" : "bg-white text-slate-800 border border-slate-100 shadow-sm rounded-bl-sm";
 
     return (
         <div className={`h-screen w-full flex flex-col ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'} font-sans`}>
@@ -311,11 +409,11 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                     {/* VIEW: HOME */}
                     {currentTab === 'home' && (
                         <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative min-h-full flex flex-col">
+                            {/* ... Hero Section ... */}
                             <div className="relative w-full h-[500px] overflow-hidden rounded-b-[40px] shadow-2xl group">
                                 <div className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-1000" style={{ backgroundImage: `url('${heroBackground}')`, filter: isDarkMode ? 'brightness(0.6) saturate(1.2)' : 'brightness(1.05) saturate(1.1)' }} />
                                 <div className={`absolute inset-0 bg-gradient-to-b transition-colors duration-1000 ${isDarkMode ? 'from-transparent via-indigo-950/50 to-slate-950/95' : 'from-transparent via-sky-200/20 to-sky-600/90'}`} />
                                 <div className={`absolute inset-0 bg-gradient-to-r transition-colors duration-1000 ${isDarkMode ? 'from-slate-900/90 via-indigo-950/60 to-transparent' : 'from-sky-500/90 via-sky-400/50 to-transparent'}`} />
-                                <div className={`absolute top-10 right-20 w-32 h-32 rounded-full blur-[60px] opacity-40 animate-pulse transition-colors duration-1000 ${isDarkMode ? 'bg-indigo-500' : 'bg-white'}`} />
                                 <button onClick={() => setCurrentTab('profile')} className="absolute top-6 right-6 p-2.5 bg-black/20 backdrop-blur-md rounded-full text-white/80 hover:bg-white/20 hover:text-white transition-all opacity-80 hover:opacity-100 z-30 border border-white/10 hover:scale-110">
                                     <Camera size={18} />
                                 </button>
@@ -377,94 +475,201 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                     {/* VIEW: HEALTH RECORDS */}
                     {currentTab === 'records' && (
                         <motion.div key="records" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-6">
-                            <h2 className="text-2xl font-black mb-6">{t.patientDashboard.history}</h2>
-                            
-                            {/* --- CHART SECTION --- */}
-                            {chartData.length > 0 && (
-                                <div className={`mb-8 p-6 rounded-2xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
-                                    <div className="flex justify-between items-center mb-6">
-                                        <h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>{language === 'vi' ? 'Biểu Đồ Sức Khỏe' : 'Health Curve'}</h3>
-                                        <TrendingUp size={18} className={isDarkMode ? 'text-teal-400' : 'text-teal-600'} />
-                                    </div>
-                                    <div className="h-[200px] w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                                <defs>
-                                                    <linearGradient id="colorGradePatient" x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.3}/>
-                                                        <stop offset="95%" stopColor="#14b8a6" stopOpacity={0}/>
-                                                    </linearGradient>
-                                                </defs>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} />
-                                                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} />
-                                                <YAxis tickCount={5} domain={[0, 4]} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                                                <Tooltip 
-                                                    contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                                                    itemStyle={{ color: isDarkMode ? '#fff' : '#000', fontSize: '12px', fontWeight: 'bold' }}
-                                                    labelFormatter={(label, payload) => payload[0]?.payload?.fullDate || label}
-                                                />
-                                                <Area type="monotone" dataKey="grade" stroke="#14b8a6" strokeWidth={3} fillOpacity={1} fill="url(#colorGradePatient)" />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* --- RECORDS LIST --- */}
-                            {diagnosisHistory.length === 0 ? (
-                                <div className="text-center py-20 opacity-50">
-                                    <FileText size={48} className="mx-auto mb-4"/>
-                                    <p>{language === 'vi' ? 'Chưa có hồ sơ bệnh án.' : 'No diagnosis history yet.'}</p>
-                                    <p className="text-xs mt-2 text-slate-400">{language === 'vi' ? 'Hồ sơ sẽ xuất hiện khi Bác sĩ cập nhật.' : 'Records appear here when the Doctor updates them.'}</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-2">
-                                    {diagnosisHistory.map((rec) => <RecordCard key={rec.id} record={rec} isDarkMode={isDarkMode} />)}
-                                </div>
-                            )}
+                            <AnimatePresence mode="wait">
+                                {selectedRecord ? (
+                                    <motion.div key="detail" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="max-w-3xl mx-auto">
+                                        <button onClick={() => setSelectedRecord(null)} className={`flex items-center mb-6 text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}>
+                                            <ArrowLeft size={16} className="mr-2" /> {language === 'vi' ? 'Quay lại danh sách' : 'Back to List'}
+                                        </button>
+                                        <div className={`p-6 rounded-3xl border shadow-xl ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+                                            <div className="flex justify-between items-start mb-6">
+                                                <div>
+                                                    <h2 className="text-2xl font-black mb-1">{language === 'vi' ? 'Chi Tiết Chẩn Đoán' : 'Diagnosis Report'}</h2>
+                                                    <p className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>ID: #{selectedRecord.id.substring(0,8)} • {new Date(selectedRecord.date).toLocaleDateString()}</p>
+                                                </div>
+                                                <div className={`px-4 py-2 rounded-xl font-bold uppercase text-xs tracking-widest ${selectedRecord.grade === 0 ? 'bg-emerald-100 text-emerald-700' : selectedRecord.grade <= 2 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>Grade {selectedRecord.grade}</div>
+                                            </div>
+                                            {selectedRecord.imageUrl && (
+                                                <div className="grid grid-cols-2 gap-4 mb-8">
+                                                    <div className="space-y-2">
+                                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 flex items-center"><Eye size={12} className="mr-1"/> {language === 'vi' ? 'Ảnh Chụp Đáy Mắt' : 'Original Fundus'}</p>
+                                                        <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-black aspect-square"><img src={selectedRecord.imageUrl} className="w-full h-full object-contain" alt="Original" /></div>
+                                                    </div>
+                                                    {selectedRecord.heatmapUrl ? (
+                                                        <div className="space-y-2"><p className="text-[10px] font-bold uppercase tracking-widest opacity-60 flex items-center"><Activity size={12} className="mr-1"/> {language === 'vi' ? 'Bản Đồ Nhiệt (AI)' : 'AI Heatmap'}</p><div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-black aspect-square"><img src={selectedRecord.heatmapUrl} className="w-full h-full object-contain" alt="Heatmap" /></div></div>
+                                                    ) : (
+                                                        <div className="space-y-2 opacity-50"><p className="text-[10px] font-bold uppercase tracking-widest opacity-60 flex items-center"><Activity size={12} className="mr-1"/> AI Heatmap</p><div className="rounded-xl border border-dashed border-slate-400 aspect-square flex items-center justify-center bg-slate-50 dark:bg-slate-900"><span className="text-[10px]">No Heatmap</span></div></div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            <div className={`p-5 rounded-2xl mb-6 border-l-4 ${isDarkMode ? 'bg-blue-900/10 border-blue-500' : 'bg-blue-50 border-blue-600'}`}>
+                                                <h3 className={`text-sm font-bold uppercase tracking-wider mb-2 flex items-center ${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}><Stethoscope size={16} className="mr-2"/> {language === 'vi' ? 'Lời Khuyên Của Bác Sĩ' : "Doctor's Advice"}</h3>
+                                                <p className={`text-sm leading-relaxed ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{selectedRecord.doctorNotes || (language === 'vi' ? "Chưa có ghi chú cụ thể." : "No specific notes provided.")}</p>
+                                            </div>
+                                            <div className={`p-5 rounded-2xl border ${isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                                                <h3 className="text-xs font-bold uppercase tracking-wider mb-2 flex items-center opacity-70"><Brain size={14} className="mr-2"/> {language === 'vi' ? 'Phân Tích AI' : "AI Findings"} <span className="ml-auto text-[10px] bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded">{selectedRecord.confidence.toFixed(0)}% Confidence</span></h3>
+                                                <p className="text-xs leading-relaxed opacity-80 whitespace-pre-wrap">{selectedRecord.note}</p>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                ) : (
+                                    <motion.div key="list" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                                        <h2 className="text-2xl font-black mb-6">{t.patientDashboard.history}</h2>
+                                        {chartData.length > 0 && (
+                                            <div className={`mb-8 p-6 rounded-2xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                                                <div className="flex justify-between items-center mb-6"><h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>{language === 'vi' ? 'Biểu Đồ Sức Khỏe' : 'Health Curve'}</h3><TrendingUp size={18} className={isDarkMode ? 'text-teal-400' : 'text-teal-600'} /></div>
+                                                <div className="h-[200px] w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><defs><linearGradient id="colorGradePatient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#14b8a6" stopOpacity={0.3}/><stop offset="95%" stopColor="#14b8a6" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} /><YAxis tickCount={5} domain={[0, 4]} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} /><Tooltip contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} itemStyle={{ color: isDarkMode ? '#fff' : '#000', fontSize: '12px', fontWeight: 'bold' }} labelFormatter={(label, payload) => payload[0]?.payload?.fullDate || label} /><Area type="monotone" dataKey="grade" stroke="#14b8a6" strokeWidth={3} fillOpacity={1} fill="url(#colorGradePatient)" /></AreaChart></ResponsiveContainer></div>
+                                            </div>
+                                        )}
+                                        {diagnosisHistory.length === 0 ? (
+                                            <div className="text-center py-20 opacity-50"><FileText size={48} className="mx-auto mb-4"/><p>{language === 'vi' ? 'Chưa có hồ sơ bệnh án.' : 'No diagnosis history yet.'}</p><p className="text-xs mt-2 text-slate-400">{language === 'vi' ? 'Hồ sơ sẽ xuất hiện khi Bác sĩ cập nhật.' : 'Records appear here when the Doctor updates them.'}</p></div>
+                                        ) : (
+                                            <div className="space-y-3">{diagnosisHistory.map((rec) => (<div key={rec.id} onClick={() => setSelectedRecord(rec)} className={`p-4 rounded-2xl border flex items-center justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-xl cursor-pointer ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-blue-200'}`}><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${rec.grade === 0 ? 'bg-emerald-100 text-emerald-600' : rec.grade <= 2 ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>{rec.grade === 0 ? 'A' : rec.grade <= 2 ? 'B' : 'C'}</div><div><p className="text-xs font-bold opacity-50 uppercase tracking-wider">{new Date(rec.date).toLocaleDateString()}</p><h4 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{rec.grade === 0 ? "Healthy Retina" : `Diabetic Retinopathy (Stage ${rec.grade})`}</h4>{rec.doctorNotes && <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1 italic">Dr: "{rec.doctorNotes}"</p>}</div></div><ChevronRight size={16} className="opacity-30" /></div>))}</div>
+                                        )}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </motion.div>
                     )}
 
                     {/* VIEW: CHAT */}
                     {currentTab === 'chat' && (
-                        <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex flex-col">
-                            <div className={`p-4 shadow-sm border-b z-10 flex items-center justify-between ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg"><Stethoscope size={20} /></div>
-                                    <div>
-                                        <h3 className="text-sm font-bold">{userProfile?.hospital || (language === 'vi' ? 'Bác sĩ phụ trách' : 'Your Doctor')}</h3>
-                                        <div className="flex items-center"><span className={`w-2 h-2 rounded-full mr-2 ${assignedDoctorId ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span><span className="text-[10px] opacity-60 uppercase font-bold tracking-wider">{assignedDoctorId ? (language === 'vi' ? 'Trực tuyến' : 'Online') : (language === 'vi' ? 'Chưa liên kết' : 'Not Linked')}</span></div>
+                        <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex flex-col relative overflow-hidden">
+                            {/* --- CHAT HEADER --- */}
+                            <div className={`p-4 shadow-sm border-b z-10 flex flex-col gap-4 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-lg ${chatMode === 'doctor' ? 'bg-gradient-to-br from-blue-500 to-indigo-600' : 'bg-gradient-to-br from-purple-500 to-pink-600'}`}>
+                                            {chatMode === 'doctor' ? <Stethoscope size={20} /> : <Bot size={20} />}
+                                        </div>
+                                        <div>
+                                            <h3 className="text-sm font-bold">{chatMode === 'doctor' ? (userProfile?.hospital || (language === 'vi' ? 'Bác sĩ phụ trách' : 'Your Doctor')) : (language === 'vi' ? 'Trợ lý AI' : 'AI Assistant')}</h3>
+                                            <div className="flex items-center">
+                                                <span className={`w-2 h-2 rounded-full mr-2 ${chatMode === 'ai' || isDoctorOnline ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                                                <span className="text-[10px] opacity-60 uppercase font-bold tracking-wider">
+                                                    {chatMode === 'ai' ? 'Online' : assignedDoctorId ? (isDoctorOnline ? (language === 'vi' ? 'Trực tuyến' : 'Online') : (language === 'vi' ? 'Ngoại tuyến' : 'Offline')) : (language === 'vi' ? 'Chưa liên kết' : 'Not Linked')}
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
+
+                                {/* TAB SWITCHER */}
+                                <div className={`flex p-1 rounded-xl relative ${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                                    <motion.div 
+                                        layoutId="chat-tab-bg"
+                                        className={`absolute top-1 bottom-1 ${isDarkMode ? 'bg-slate-700' : 'bg-white'} rounded-lg shadow-sm`}
+                                        initial={false}
+                                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                                        style={{ 
+                                            left: chatMode === 'doctor' ? '4px' : '50%', 
+                                            right: chatMode === 'doctor' ? '50%' : '4px',
+                                            width: 'auto' 
+                                        }}
+                                    />
+                                    <button 
+                                        onClick={() => setChatMode('doctor')}
+                                        className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider relative z-10 flex items-center justify-center gap-2 transition-colors ${chatMode === 'doctor' ? (isDarkMode ? 'text-white' : 'text-blue-600') : 'text-slate-500'}`}
+                                    >
+                                        <UserIcon size={12} /> {language === 'vi' ? 'Bác Sĩ' : 'Doctor'}
+                                    </button>
+                                    <button 
+                                        onClick={() => setChatMode('ai')}
+                                        className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider relative z-10 flex items-center justify-center gap-2 transition-colors ${chatMode === 'ai' ? (isDarkMode ? 'text-white' : 'text-purple-600') : 'text-slate-500'}`}
+                                    >
+                                        <Sparkles size={12} /> AI Chat
+                                    </button>
+                                </div>
                             </div>
+
+                            {/* --- MESSAGES AREA --- */}
                             <div className="flex-1 overflow-y-auto space-y-4 p-4 custom-scrollbar bg-slate-50/50 dark:bg-black/50">
-                                {!assignedDoctorId ? (
-                                    <div className="flex flex-col items-center justify-center h-full opacity-60 text-center">
-                                        <AlertTriangle size={48} className="text-yellow-500 mb-4" />
-                                        <p className="font-bold">{language === 'vi' ? 'Chưa liên kết với Bác sĩ' : 'No Doctor Assigned'}</p>
-                                        <p className="text-xs mt-2 max-w-xs">{language === 'vi' ? 'Vui lòng vào phần "Cá Nhân" và nhập email bác sĩ để kết nối.' : 'Go to "Profile" and link your doctor via email to start chatting.'}</p>
-                                        <button onClick={() => setCurrentTab('profile')} className="mt-4 text-xs font-bold text-blue-500 underline">{language === 'vi' ? 'Đi tới Cài đặt' : 'Go to Settings'}</button>
+                                {/* DOCTOR CHAT */}
+                                {chatMode === 'doctor' && (
+                                    !assignedDoctorId ? (
+                                        <div className="flex flex-col items-center justify-center h-full opacity-60 text-center">
+                                            <AlertTriangle size={48} className="text-yellow-500 mb-4" />
+                                            <p className="font-bold">{language === 'vi' ? 'Chưa liên kết với Bác sĩ' : 'No Doctor Assigned'}</p>
+                                            <p className="text-xs mt-2 max-w-xs">{language === 'vi' ? 'Vui lòng vào phần "Cá Nhân" và nhập email bác sĩ để kết nối.' : 'Go to "Profile" and link your doctor via email to start chatting.'}</p>
+                                            <button onClick={() => setCurrentTab('profile')} className="mt-4 text-xs font-bold text-blue-500 underline">{language === 'vi' ? 'Đi tới Cài đặt' : 'Go to Settings'}</button>
+                                        </div>
+                                    ) : messages.length === 0 ? (
+                                        <div className="text-center py-10 opacity-50"><MessageCircle size={40} className="mx-auto mb-2" /><p className="text-xs">{language === 'vi' ? 'Bắt đầu trò chuyện với bác sĩ.' : 'Start chatting with your doctor.'}</p></div>
+                                    ) : (
+                                        messages.map((msg, idx) => {
+                                            const isMe = msg.senderId === currentUser?.uid;
+                                            return (
+                                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={msg.id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                                    {!isMe && (
+                                                        <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white mr-2 self-end mb-1 shadow-sm">
+                                                            <Stethoscope size={12} />
+                                                        </div>
+                                                    )}
+                                                    <div className={`max-w-[75%] p-3 text-sm rounded-2xl shadow-sm ${isMe ? `${bubbleUser} rounded-br-sm` : `${bubbleOther} rounded-bl-sm`}`}>
+                                                        {msg.text}
+                                                    </div>
+                                                </motion.div>
+                                            );
+                                        })
+                                    )
+                                )}
+
+                                {/* DOCTOR TYPING INDICATOR */}
+                                {chatMode === 'doctor' && isDoctorTyping && (
+                                    <div className="flex w-full justify-start">
+                                        <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white mr-2 self-end mb-1 shadow-sm">
+                                            <Stethoscope size={12} />
+                                        </div>
+                                        <TypingIndicator isDarkMode={isDarkMode} />
                                     </div>
-                                ) : messages.length === 0 ? (
-                                    <div className="text-center py-10 opacity-50"><MessageCircle size={40} className="mx-auto mb-2" /><p className="text-xs">{language === 'vi' ? 'Bắt đầu trò chuyện với bác sĩ.' : 'Start chatting with your doctor.'}</p></div>
-                                ) : (
-                                    messages.map(msg => {
-                                        const isMe = msg.senderId === currentUser?.uid;
+                                )}
+
+                                {/* AI CHAT */}
+                                {chatMode === 'ai' && (
+                                    aiMessages.map((msg, idx) => {
+                                        const isAi = msg.sender === 'ai';
                                         return (
-                                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                                <div className={`max-w-[75%] p-3.5 text-xs shadow-sm ${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm' : `${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl rounded-bl-sm`}`}>{msg.text}</div>
+                                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={msg.id} className={`flex ${!isAi ? 'justify-end' : 'justify-start'}`}>
+                                                {isAi && (
+                                                    <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white mr-2 self-start mt-2 shadow-sm">
+                                                        <Bot size={12} />
+                                                    </div>
+                                                )}
+                                                <div className={`max-w-[85%] p-3 text-sm rounded-2xl shadow-sm leading-relaxed ${!isAi ? `${bubbleUser} bg-gradient-to-br from-purple-600 to-pink-600` : bubbleOther}`}>
+                                                    {msg.text}
+                                                </div>
                                             </motion.div>
-                                        )
+                                        );
                                     })
+                                )}
+                                {chatMode === 'ai' && isAiThinking && (
+                                    <div className="flex justify-start">
+                                        <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white mr-2 self-center shadow-sm"><Bot size={12} /></div>
+                                        <div className={`${bubbleOther} p-3 rounded-2xl`}>
+                                            <Loader2 size={16} className="animate-spin text-purple-500" />
+                                        </div>
+                                    </div>
                                 )}
                                 <div ref={messagesEndRef} />
                             </div>
-                            {assignedDoctorId && (
-                                <div className={`p-3 m-3 rounded-2xl flex items-center gap-2 border shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-white'}`}>
-                                    <input className={`flex-1 bg-transparent p-2 text-sm outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`} placeholder={language === 'vi' ? "Nhập tin nhắn..." : "Type a message..."} value={inputMsg} onChange={e => setInputMsg(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMessage()} />
-                                    <button onClick={handleSendMessage} disabled={!inputMsg.trim()} className="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"><Send size={16} /></button>
-                                </div>
-                            )}
+
+                            {/* --- INPUT AREA --- */}
+                            <div className={`p-3 m-3 rounded-2xl flex items-center gap-2 border shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-white'}`}>
+                                <input 
+                                    className={`flex-1 bg-transparent p-2 text-sm outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`} 
+                                    placeholder={language === 'vi' ? "Nhập tin nhắn..." : "Type a message..."} 
+                                    value={chatMode === 'doctor' ? inputMsg : aiInputMsg} 
+                                    onChange={e => chatMode === 'doctor' ? handleInputChange(e) : setAiInputMsg(e.target.value)} 
+                                    onKeyDown={e => e.key === 'Enter' && (chatMode === 'doctor' ? handleSendMessage() : handleSendAI())} 
+                                />
+                                <button 
+                                    onClick={chatMode === 'doctor' ? handleSendMessage : handleSendAI} 
+                                    disabled={chatMode === 'doctor' ? !inputMsg.trim() : (!aiInputMsg.trim() || isAiThinking)} 
+                                    className={`p-3 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md ${chatMode === 'doctor' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                                >
+                                    <Send size={16} />
+                                </button>
+                            </div>
                         </motion.div>
                     )}
 
@@ -521,6 +726,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                 <TabButton id="profile" icon={UserIcon} label={t.patientDashboard.tabs.profile} currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
             </nav>
 
+            {/* Book Appointment Modal remains the same ... */}
             <AnimatePresence>
                 {isBookModalOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

@@ -1,3 +1,4 @@
+
 import { db } from "./firebase";
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, setDoc, updateDoc } from "firebase/firestore";
 import { ChatMessage, ChatUser, ChatSession } from "../types";
@@ -50,6 +51,34 @@ export const subscribeToMessages = (chatId: string, onData: (msgs: ChatMessage[]
     });
 };
 
+// --- SUBSCRIBE TO CHAT METADATA (TYPING STATUS) ---
+export const subscribeToChatMetadata = (chatId: string, onData: (session: ChatSession | null) => void) => {
+    if (!chatId || chatId === "invalid_chat") return () => {};
+    
+    return onSnapshot(doc(db, "chats", chatId), (docSnap) => {
+        if (docSnap.exists()) {
+            onData({ id: docSnap.id, ...docSnap.data() } as ChatSession);
+        } else {
+            onData(null);
+        }
+    });
+};
+
+// --- SET TYPING STATUS ---
+export const setTypingStatus = async (chatId: string, userId: string, isTyping: boolean) => {
+    if (!chatId || chatId === "invalid_chat") return;
+    try {
+        const chatRef = doc(db, "chats", chatId);
+        // Use dot notation to update nested field specifically
+        await updateDoc(chatRef, {
+            [`typing.${userId}`]: isTyping
+        });
+    } catch (e) {
+        // If doc doesn't exist yet, we might need to set it, but usually sendMessage handles creation.
+        // Silently fail for typing indicators to avoid spamming errors on new chats
+    }
+};
+
 // --- SUBSCRIBE TO ACTIVE CHAT SESSIONS (FOR NOTIFICATIONS) ---
 export const subscribeToActiveChats = (currentUid: string, onData: (chats: ChatSession[]) => void) => {
     // Find chats where the current user is a participant
@@ -89,6 +118,7 @@ export const sendMessage = async (chatId: string, senderId: string, text: string
 
         // 1. Update Parent Chat Document (Metadata for notifications)
         // We explicitly set participants every time to auto-heal any broken chat documents
+        // ALSO: Reset typing status for sender
         await setDoc(chatRef, { 
             participants: participants,
             lastMessage: {
@@ -97,7 +127,8 @@ export const sendMessage = async (chatId: string, senderId: string, text: string
                 timestamp: serverTimestamp(),
                 seen: false 
             },
-            updatedAt: serverTimestamp() 
+            updatedAt: serverTimestamp(),
+            [`typing.${senderId}`]: false 
         }, { merge: true });
 
         // 2. Add message to subcollection
