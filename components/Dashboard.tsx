@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Users, Calendar as CalendarIcon, Clock, Check, HeartPulse, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2, Activity, MessageSquare, Coffee, FileBarChart, Siren, RefreshCw, UserPlus, Pill, Cpu } from 'lucide-react';
+import { Users, Calendar as CalendarIcon, Clock, Check, HeartPulse, Plus, Search, MapPin, ScanEye, Loader2, X, Save, Trash2, Edit2, Activity, MessageSquare, Coffee, FileBarChart, Siren, RefreshCw, UserPlus, Pill, Cpu, Bell, AlertTriangle, Info } from 'lucide-react';
 import { BarChart, Bar, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -16,7 +16,7 @@ interface DashboardProps {
     setView: (view: string) => void;
 }
 
-const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15]; 
+const TIME_SLOTS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]; 
 
 const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProfile, setView }) => {
   const [viewMode, setViewMode] = useState<'personal' | 'department'>('personal');
@@ -33,7 +33,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
 
   const [isApptModalOpen, setIsApptModalOpen] = useState(false);
   const [editingApptId, setEditingApptId] = useState<string | null>(null);
-  const [newAppt, setNewAppt] = useState<Partial<Appointment>>({
+  
+  // Expanded Appointment State
+  const [newAppt, setNewAppt] = useState<Partial<Appointment> & { room?: string, priority?: string }>({
       patientId: '',
       patientName: '',
       title: '',
@@ -41,7 +43,10 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
       startTime: 9,
       duration: 1,
       status: 'Pending',
-      date: ''
+      date: '',
+      room: '101',
+      priority: 'Normal',
+      notes: ''
   });
 
   const { t, language } = useLanguage();
@@ -170,7 +175,10 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
           startTime: 9, 
           duration: 1, 
           status: 'Pending',
-          date: dateStr
+          date: dateStr,
+          room: '101',
+          priority: 'Normal',
+          notes: ''
       });
       setIsApptModalOpen(true);
   };
@@ -193,6 +201,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
 
   const handleSaveAppointment = async (e: React.FormEvent) => {
       e.preventDefault();
+      // Optimization: Close immediately to feel snappy
+      setIsApptModalOpen(false); 
+      
       try {
           const apptData = {
               doctorId: currentUser?.uid, 
@@ -211,28 +222,61 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
           } else {
               await addAppointment(apptData);
           }
-          setIsApptModalOpen(false);
       } catch (err) {
+          console.error("Save failed", err);
           alert(t.dashboard.schedule.modal.failed_save);
       }
   };
 
-  const handleDelete = async (id?: string) => {
-      const targetId = id || editingApptId;
-      if (targetId && confirm(t.dashboard.schedule.modal.delete_confirm)) {
+  // --- REFACTORED ACTIONS (No Events Passed to Logic) ---
+
+  const confirmAndDelete = async (id: string) => {
+      if (!id) return;
+
+      const confirmMsg = language === 'vi' 
+          ? "Bạn có chắc chắn muốn xóa lịch trình này?" 
+          : "Are you sure you want to delete this appointment?";
+
+      if (window.confirm(confirmMsg)) {
+          // If we are deleting the currently edited item, close modal
+          if (id === editingApptId) {
+              setIsApptModalOpen(false);
+              setEditingApptId(null);
+          }
+          
           try {
-              await deleteAppointment(targetId);
-              if (targetId === editingApptId) setIsApptModalOpen(false);
+              await deleteAppointment(id);
           } catch(err) {
+              console.error(err);
               alert(t.dashboard.schedule.modal.failed_delete);
           }
       }
   };
 
-  const handleStatusToggle = async (e: React.MouseEvent, id: string, currentStatus: string) => {
-      e.stopPropagation();
+  const confirmAndDeny = async (id: string) => {
+      if (!id) return;
+      
+      const confirmMsg = language === 'vi' 
+          ? "Từ chối và xóa yêu cầu này?" 
+          : "Deny and remove this request?";
+
+      if (window.confirm(confirmMsg)) {
+          try {
+              await deleteAppointment(id);
+          } catch (err) {
+              console.error("Deny failed", err);
+              alert(language === 'vi' ? "Lỗi khi xóa yêu cầu." : "Failed to deny request.");
+          }
+      }
+  };
+
+  const toggleStatus = async (id: string, currentStatus: string) => {
       const newStatus = currentStatus === 'Done' ? 'Pending' : currentStatus === 'Pending' ? 'In Progress' : 'Done';
-      await updateAppointmentStatus(id, newStatus as any);
+      try {
+          await updateAppointmentStatus(id, newStatus as any);
+      } catch (err) {
+          console.error("Status update failed", err);
+      }
   };
 
   const formatTime = (time: number) => {
@@ -317,26 +361,46 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                     <div className={`p-4 rounded-xl border ${cardClass} flex flex-col h-[320px] ${hoverEffect}`}>
                         <div className="flex justify-between items-center mb-3">
                             <h3 className="font-bold text-xs">
-                                {pendingAppointments.length > 0 ? "Inbox & Agenda" : t.dashboard.agenda.title}
+                                {pendingAppointments.length > 0 ? (language === 'vi' ? "Hộp thư & Lịch trình" : "Inbox & Agenda") : t.dashboard.agenda.title}
                             </h3>
                             <button onClick={() => openAddModal()} className={`p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors ${isDarkMode ? 'text-red-500' : 'text-blue-500'}`}><Plus size={14} /></button>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
+                            {/* PENDING / NEW REQUESTS SECTION */}
                             {pendingAppointments.length > 0 && (
                                 <div className="mb-4">
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 mb-2 pl-1">New Requests ({pendingAppointments.length})</p>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 mb-2 pl-1">
+                                        {language === 'vi' ? `Yêu cầu mới (${pendingAppointments.length})` : `New Requests (${pendingAppointments.length})`}
+                                    </p>
                                     <div className="space-y-2">
                                         {pendingAppointments.map(item => (
-                                            <div key={item.id} className={`p-2.5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10 transition-colors`}>
+                                            <div 
+                                                key={item.id} 
+                                                onClick={() => openEditModal(item)}
+                                                className={`p-3 rounded-xl border border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10 transition-colors shadow-sm cursor-pointer relative group`}
+                                            >
                                                 <div className="flex justify-between items-start mb-1">
                                                     <span className="text-[9px] font-bold uppercase text-yellow-500">{new Date(item.date).toLocaleDateString()}</span>
-                                                    <div className="flex gap-1">
-                                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="p-1 rounded-full hover:bg-red-500 hover:text-white text-slate-400 transition-colors"><X size={12}/></button>
-                                                        <button onClick={(e) => handleStatusToggle(e, item.id, 'Pending')} className="p-1 rounded-full bg-green-500 text-white hover:scale-110 transition-transform shadow-md"><Check size={12}/></button>
+                                                    <div className="flex gap-2 relative z-10">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); confirmAndDeny(item.id); }} 
+                                                            className="p-1.5 rounded-full bg-white dark:bg-slate-800 text-slate-400 hover:bg-red-500 hover:text-white transition-all shadow-sm border border-slate-100 dark:border-slate-700 hover:scale-110"
+                                                            title="Deny / Remove"
+                                                        >
+                                                            <X size={12} strokeWidth={3} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); toggleStatus(item.id, 'Pending'); }} 
+                                                            className="p-1.5 rounded-full bg-green-500 text-white hover:scale-110 transition-transform shadow-md"
+                                                            title="Approve / Accept"
+                                                        >
+                                                            <Check size={12} strokeWidth={3} />
+                                                        </button>
                                                     </div>
                                                 </div>
                                                 <h4 className="font-bold text-xs">{item.title}</h4>
                                                 <p className="text-[10px] opacity-70 mt-0.5">{item.patientName}</p>
+                                                {item.notes && <p className="text-[9px] text-slate-500 mt-1 italic line-clamp-1 border-t border-yellow-500/20 pt-1">"{item.notes}"</p>}
                                             </div>
                                         ))}
                                     </div>
@@ -344,6 +408,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                 </div>
                             )}
 
+                            {/* ACTIVE AGENDA SECTION */}
                             {appointments.filter(a => a.status !== 'Pending').length === 0 ? (
                                 <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50"><CalendarIcon size={24} className="mb-2" /><p className="text-[10px] font-bold uppercase">{t.dashboard.schedule.no_appointments}</p><button onClick={() => openAddModal()} className="mt-2 text-[9px] underline">{t.dashboard.schedule.add_one}</button></div>
                             ) : (
@@ -353,9 +418,18 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                         <div className={`flex-1 p-2 rounded-lg border mb-0.5 transition-all relative group hover:shadow-md ${item.status === 'In Progress' ? (isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-blue-50 border-blue-200') : item.status === 'Done' ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 opacity-60' : `bg-white dark:bg-slate-900 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}`}>
                                             <div className="flex justify-between items-start">
                                                 <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded mb-0.5 inline-block ${item.type === 'Surgery' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{getTranslatedType(item.type)}</span>
-                                                <div className="flex items-center space-x-2">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
-                                                    <button onClick={(e) => handleStatusToggle(e, item.id, item.status)} className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${isDarkMode ? 'bg-blue-500' : 'bg-blue-500'} border-transparent` : item.status === 'Done' ? 'bg-green-500 border-transparent' : 'border-slate-300'}`}>
+                                                <div className="flex items-center space-x-2 relative z-20">
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); confirmAndDelete(item.id); }} 
+                                                        className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-300 hover:text-red-500 transition-colors"
+                                                        title="Delete Appointment"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); toggleStatus(item.id, item.status); }} 
+                                                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${item.status === 'In Progress' ? `${isDarkMode ? 'bg-blue-500' : 'bg-blue-500'} border-transparent` : item.status === 'Done' ? 'bg-green-500 border-transparent' : 'border-slate-300'}`}
+                                                    >
                                                         {item.status === 'In Progress' && <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}
                                                         {item.status === 'Done' && <Check size={10} className="text-white" />}
                                                     </button>
@@ -372,64 +446,39 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                 </div>
 
                 <div className="lg:col-span-2 space-y-3">
+                    {/* Shift Updates & Alerts (Replaces Clinical Hub) */}
                     <div>
-                        <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>Clinical Hub</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            {[
-                                { 
-                                    id: 'diagnosis', 
-                                    icon: ScanEye, 
-                                    label: language === 'vi' ? 'Chẩn đoán AI' : 'AI Scan', 
-                                    desc: language === 'vi' ? 'Bắt đầu quét mới' : 'Start new scan',
-                                    color: 'text-blue-500', 
-                                    bg: 'bg-blue-500/10',
-                                    action: () => setView('diagnosis') 
-                                },
-                                { 
-                                    id: 'patient_add', 
-                                    icon: UserPlus, 
-                                    label: language === 'vi' ? 'Tiếp nhận' : 'Intake', 
-                                    desc: language === 'vi' ? 'Thêm bệnh nhân' : 'Add patient',
-                                    color: 'text-emerald-500', 
-                                    bg: 'bg-emerald-500/10',
-                                    action: () => setView('patients') 
-                                },
-                                { 
-                                    id: 'pharmacy', 
-                                    icon: Pill, 
-                                    label: language === 'vi' ? 'Kho thuốc' : 'Pharmacy', 
-                                    desc: language === 'vi' ? 'Kiểm tra kho' : 'Check stock',
-                                    color: 'text-purple-500', 
-                                    bg: 'bg-purple-500/10',
-                                    action: () => setView('inventory') 
-                                },
-                                { 
-                                    id: 'system_health', 
-                                    icon: Cpu, 
-                                    label: language === 'vi' ? 'Trạng thái' : 'System', 
-                                    desc: 'AI Online • 45ms',
-                                    color: 'text-orange-500', 
-                                    bg: 'bg-orange-500/10',
-                                    action: () => {} 
-                                },
-                            ].map((action, i) => (
-                                <motion.button 
-                                    key={i}
-                                    whileHover={{ scale: 1.02, y: -3 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={action.action}
-                                    className={`relative p-4 rounded-2xl border ${cardClass} flex flex-col items-start justify-between gap-3 transition-all h-[110px] overflow-hidden group hover:border-${action.color.split('-')[1]}-500/50`}
-                                >
-                                    <div className={`p-2.5 rounded-xl ${action.bg} ${action.color} group-hover:scale-110 transition-transform`}>
-                                        <action.icon size={20} />
+                        <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-2 flex items-center ${textMuted}`}>
+                            <Siren size={12} className="mr-1 text-orange-500"/> Shift Updates & Notices
+                        </h3>
+                        <div className={`p-4 rounded-xl border ${cardClass} flex flex-col md:flex-row gap-4 ${hoverEffect}`}>
+                            <div className="flex-1 space-y-3">
+                                {[
+                                    { type: 'Critical', msg: 'ICU Bed Capacity at 90%', time: '10m ago' },
+                                    { type: 'Info', msg: 'Staff meeting at 2:00 PM in Room 303', time: '1h ago' },
+                                    { type: 'System', msg: 'Pharmacy inventory sync completed', time: '2h ago' }
+                                ].map((alert, i) => (
+                                    <div key={i} className="flex items-start gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg transition-colors cursor-pointer group">
+                                        <div className={`mt-0.5 w-2 h-2 rounded-full ${alert.type === 'Critical' ? 'bg-red-500 animate-pulse' : alert.type === 'Info' ? 'bg-blue-500' : 'bg-green-500'}`} />
+                                        <div className="flex-1">
+                                            <p className={`text-xs font-medium ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>{alert.msg}</p>
+                                            <p className="text-[9px] text-slate-500 mt-0.5">{alert.type} • {alert.time}</p>
+                                        </div>
+                                        <Info size={14} className="opacity-0 group-hover:opacity-50 text-slate-400" />
                                     </div>
-                                    <div>
-                                        <h4 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{action.label}</h4>
-                                        <p className="text-[10px] opacity-60 font-medium">{action.desc}</p>
-                                    </div>
-                                    <div className={`absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-${action.color.split('-')[1]}-500/20 to-transparent blur-2xl rounded-full -mr-6 -mt-6 pointer-events-none group-hover:opacity-100 opacity-50 transition-opacity`} />
-                                </motion.button>
-                            ))}
+                                ))}
+                            </div>
+                            <div className="w-px bg-slate-200 dark:bg-slate-800 hidden md:block" />
+                            <div className="md:w-1/3 flex flex-col justify-center gap-2">
+                                <button onClick={() => setView('patients')} className={`w-full py-2.5 px-4 rounded-lg flex items-center justify-between text-xs font-bold transition-all ${isDarkMode ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-100 hover:bg-slate-200'}`}>
+                                    <span className="flex items-center"><UserPlus size={14} className="mr-2 text-blue-500"/> New Admission</span>
+                                    <span className="bg-blue-500 text-white text-[9px] px-1.5 rounded">Action</span>
+                                </button>
+                                <button onClick={() => setView('inventory')} className={`w-full py-2.5 px-4 rounded-lg flex items-center justify-between text-xs font-bold transition-all ${isDarkMode ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-100 hover:bg-slate-200'}`}>
+                                    <span className="flex items-center"><Pill size={14} className="mr-2 text-purple-500"/> Order Meds</span>
+                                    <span className="bg-purple-500 text-white text-[9px] px-1.5 rounded">Stock</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -509,8 +558,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                                       <div className="relative h-12 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
                                           <div className="absolute inset-0 flex pointer-events-none">{TIME_SLOTS.map(h => (<div key={h} className="flex-1 border-r border-slate-200/30 dark:border-slate-700/30 first:border-l"></div>))}</div>
                                           {typeAppts.map((appt, idx) => {
-                                              const minTime = 8; const totalHours = 8; const left = ((appt.startTime - minTime) / totalHours) * 100; const width = (appt.duration / totalHours) * 100;
-                                              if (appt.startTime < 8 || appt.startTime >= 16) return null;
+                                              const minTime = 8; const totalHours = 10; const left = ((appt.startTime - minTime) / totalHours) * 100; const width = (appt.duration / totalHours) * 100;
+                                              if (appt.startTime < 8 || appt.startTime >= 18) return null;
                                               return (
                                                   <div key={appt.id} className={`absolute top-1.5 bottom-1.5 rounded-lg px-3 flex items-center shadow-sm cursor-pointer hover:brightness-110 transition-all ${getBarColor(appt.type)} border border-white/10`} style={{ left: `${Math.max(0, left)}%`, width: `${Math.min(100 - left, width)}%` }} onClick={() => openEditModal(appt)} title={`${appt.title} - ${appt.patientName}`}><span className="text-[10px] font-bold truncate w-full">{appt.patientName}</span></div>
                                               )
@@ -541,7 +590,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
             {isApptModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsApptModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-                    <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className={`relative w-full max-w-sm p-6 rounded-2xl border shadow-2xl ${cardClass} max-h-[90vh] overflow-y-auto`}>
+                    <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className={`relative w-full max-w-sm p-6 rounded-2xl border shadow-2xl ${cardClass} max-h-[90vh] overflow-y-auto custom-scrollbar`}>
                         <div className="flex justify-between items-center mb-6"><h2 className="text-lg font-black uppercase flex items-center">{editingApptId ? (<><Edit2 size={18} className={`mr-2 ${themeColor}`} /> {t.dashboard.schedule.modal.edit}</>) : (<><Plus size={18} className={`mr-2 ${themeColor}`} /> {t.dashboard.schedule.modal.add}</>)}</h2><button onClick={() => setIsApptModalOpen(false)}><X size={18} /></button></div>
                         <form onSubmit={handleSaveAppointment} className="space-y-3">
                             <div className="mb-2">
@@ -550,9 +599,33 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, currentUser, userProf
                             </div>
                             <div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.patient_name}</label><select value={newAppt.patientId || ''} onChange={handlePatientSelect} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}><option value="">-- Manual Entry / Walk-in --</option>{patients.map(p => (<option key={p.id} value={p.id}>{p.name} (ID: {p.id.substring(0,4)}...)</option>))}</select><input type="text" required value={newAppt.patientName} onChange={e => setNewAppt({...newAppt, patientName: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-2 ${inputClass} ${newAppt.patientId ? 'opacity-70 cursor-not-allowed' : ''}`} placeholder="Or type name..." readOnly={!!newAppt.patientId} /></div>
                             <div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.activity}</label><input type="text" required value={newAppt.title} onChange={e => setNewAppt({...newAppt, title: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} placeholder="e.g. Scan" /></div>
+                            
+                            {/* NEW MANUAL ENTRY FIELDS */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Room No.</label>
+                                    <input type="text" value={newAppt.room || ''} onChange={e => setNewAppt({...newAppt, room: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} placeholder="e.g. 101" />
+                                </div>
+                                <div>
+                                    <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Priority</label>
+                                    <select value={newAppt.priority || 'Normal'} onChange={e => setNewAppt({...newAppt, priority: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}>
+                                        <option value="Low">Low</option>
+                                        <option value="Normal">Normal</option>
+                                        <option value="High">High</option>
+                                        <option value="Urgent">Urgent</option>
+                                    </select>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-3"><div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.start_time}</label><select value={newAppt.startTime} onChange={e => setNewAppt({...newAppt, startTime: Number(e.target.value)})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}>{TIME_SLOTS.map(t => <option key={t} value={t}>{t}:00</option>)}</select></div><div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.duration}</label><input type="number" step="0.5" value={newAppt.duration} onChange={e => setNewAppt({...newAppt, duration: Number(e.target.value)})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} /></div></div>
                             <div className="grid grid-cols-2 gap-3"><div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.type}</label><select value={newAppt.type} onChange={e => setNewAppt({...newAppt, type: e.target.value as any})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}><option value="Diagnosis">{t.dashboard.schedule.types.Diagnosis}</option><option value="Consult">{t.dashboard.schedule.types.Consult}</option><option value="Surgery">{t.dashboard.schedule.types.Surgery}</option><option value="Meeting">{t.dashboard.schedule.types.Meeting}</option></select></div><div><label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>{t.dashboard.schedule.modal.status}</label><select value={newAppt.status} onChange={e => setNewAppt({...newAppt, status: e.target.value as any})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`}><option value="Pending">{t.dashboard.schedule.statuses.Pending}</option><option value="In Progress">{t.dashboard.schedule.statuses["In Progress"]}</option><option value="Done">{t.dashboard.schedule.statuses.Done}</option></select></div></div>
-                            <div className="flex gap-2 mt-6">{editingApptId && (<button type="button" onClick={() => handleDelete()} className={`px-4 py-3 rounded-lg font-bold text-white uppercase text-xs tracking-widest bg-slate-700 hover:bg-red-600 transition-colors`}><Trash2 size={16} /></button>)}<button type="submit" className={`flex-1 py-3 rounded-lg font-bold text-white uppercase text-xs tracking-widest ${themeBg} hover:brightness-110 flex items-center justify-center`}><Save size={16} className="mr-2" />{editingApptId ? t.dashboard.schedule.modal.update : t.dashboard.schedule.modal.save}</button></div>
+                            
+                            <div>
+                                <label className={`text-[10px] font-bold uppercase tracking-widest ${textMuted}`}>Notes</label>
+                                <textarea value={newAppt.notes || ''} onChange={e => setNewAppt({...newAppt, notes: e.target.value})} className={`w-full p-2.5 rounded border outline-none text-sm mt-1 ${inputClass}`} rows={2} placeholder="Additional details..." />
+                            </div>
+
+                            <div className="flex gap-2 mt-6">{editingApptId && (<button type="button" onClick={() => confirmAndDelete(editingApptId)} className={`px-4 py-3 rounded-lg font-bold text-white uppercase text-xs tracking-widest bg-slate-700 hover:bg-red-600 transition-colors`}><Trash2 size={16} /></button>)}<button type="submit" className={`flex-1 py-3 rounded-lg font-bold text-white uppercase text-xs tracking-widest ${themeBg} hover:brightness-110 flex items-center justify-center`}><Save size={16} className="mr-2" />{editingApptId ? t.dashboard.schedule.modal.update : t.dashboard.schedule.modal.save}</button></div>
                         </form>
                     </motion.div>
                 </div>

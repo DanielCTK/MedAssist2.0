@@ -7,13 +7,13 @@ import { Save, Loader2, Camera, MapPin, Edit2, LogOut, Check, Image as ImageIcon
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { updatePassword, signOut } from "firebase/auth";
-import { auth } from '../services/firebase';
+import { auth, db } from '../services/firebase';
+import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 
 interface SettingsViewProps {
     userProfile: UserProfile | null;
     isDarkMode: boolean;
     onProfileUpdate: (newProfile: UserProfile) => void;
-    // Add closeHandler if we want strict click control, but here we assume parent handles view state or we use a "Back" button concept
     onClose?: () => void; 
 }
 
@@ -54,11 +54,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         }
     }, [userProfile]);
 
-    // Handle Click Outside to Close (Simulated "Modal" behavior within View)
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (containerRef.current && !containerRef.current.contains(event.target as Node) && onClose) {
-                // Check if the click was on a modal (portal) which might be outside this ref but valid
                 // onClose(); 
             }
         };
@@ -70,7 +68,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         setIsLoggingOut(true);
         try {
             await signOut(auth);
-            // App component handles redirect on auth state change
         } catch (e) {
             console.error(e);
             setIsLoggingOut(false);
@@ -122,6 +119,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
             const field = isAvatar ? 'photoURL' : 'bannerURL';
             await updateUserProfile(formData.uid, { [field]: finalUrl });
             
+            // IF PATIENT: ALSO UPDATE THE 'PATIENTS' COLLECTION SO DOCTOR SEES IT
+            if (isAvatar && formData.role === 'patient') {
+                const patientsRef = collection(db, "patients");
+                const q = query(patientsRef, where("uid", "==", formData.uid));
+                const snapshot = await getDocs(q);
+                if (!snapshot.empty) {
+                    const docId = snapshot.docs[0].id;
+                    await updateDoc(doc(db, "patients", docId), { avatarUrl: finalUrl });
+                }
+            }
+
             const finalProfile = { ...formData, [field]: finalUrl };
             setFormData(finalProfile);
             onProfileUpdate(finalProfile);
@@ -134,7 +142,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         }
     };
 
-    // --- FUNCTION: CONNECT TO DOCTOR ---
     const handleConnectDoctor = async () => {
         if (!doctorEmail || !formData) return;
         setIsLinking(true);
@@ -155,13 +162,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         }
     };
 
-    // --- FUNCTION: REMOVE AVATAR ---
     const handleRemoveAvatar = async () => {
         if (!formData || !confirm("Are you sure you want to remove your profile picture?")) return;
         
         try {
             setIsUploadingAvatar(true);
             await updateUserProfile(formData.uid, { photoURL: '' });
+            
+            // Also update patient record
+            if (formData.role === 'patient') {
+                const patientsRef = collection(db, "patients");
+                const q = query(patientsRef, where("uid", "==", formData.uid));
+                const snapshot = await getDocs(q);
+                if (!snapshot.empty) {
+                    const docId = snapshot.docs[0].id;
+                    await updateDoc(doc(db, "patients", docId), { avatarUrl: '' });
+                }
+            }
+
             const updatedProfile = { ...formData, photoURL: '' };
             setFormData(updatedProfile);
             onProfileUpdate(updatedProfile);
@@ -173,7 +191,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         }
     };
 
-    // --- FUNCTION: CHANGE PASSWORD ---
     const handleChangePassword = async (e: React.FormEvent) => {
         e.preventDefault();
         setPassError("");
@@ -210,22 +227,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         }
     };
 
-    // --- FUNCTION: SIGN OUT ALL DEVICES ---
-    const handleSignOutAll = async () => {
-        const confirmSignOut = confirm("This will sign you out from this device and invalidate tokens on other devices (security measure). Continue?");
-        if (confirmSignOut) {
-            try {
-                await signOut(auth);
-                window.location.reload(); 
-            } catch (error) {
-                console.error("Sign out error", error);
-            }
-        }
-    };
-
     if (!formData) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin" /></div>;
 
-    // Styles
     const containerClass = isDarkMode ? "bg-slate-900 text-slate-100" : "bg-white text-slate-900";
     const borderClass = isDarkMode ? "border-slate-800" : "border-slate-100";
     const labelColor = isDarkMode ? "text-slate-400" : "text-slate-500";
@@ -242,7 +245,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
         isLink = false
     }: { 
         label: string, 
-        fieldKey: keyof UserProfile | 'password' | 'device', 
+        fieldKey: keyof UserProfile | 'password', 
         value: string, 
         type?: string,
         readOnly?: boolean,
@@ -286,7 +289,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                                 {fieldKey === 'password' ? '••••••••' : value}
                             </span>
                             
-                            {!readOnly && fieldKey !== 'password' && fieldKey !== 'device' && (
+                            {!readOnly && fieldKey !== 'password' && (
                                 <button 
                                     onClick={() => setEditingField(fieldKey)}
                                     className={`text-xs font-bold uppercase ${linkColor} opacity-0 group-hover:opacity-100 transition-opacity ml-4 shrink-0`}
@@ -295,22 +298,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                                 </button>
                             )}
 
-                             {/* Special Action Buttons */}
                             {fieldKey === 'password' && (
                                 <button 
                                     onClick={() => setIsPassModalOpen(true)}
                                     className={`text-xs font-bold uppercase ${linkColor} ml-4 shrink-0`}
                                 >
                                     Change
-                                </button>
-                            )}
-                            
-                            {fieldKey === 'device' && (
-                                <button 
-                                    onClick={handleSignOutAll}
-                                    className={`text-xs font-bold uppercase text-red-500 hover:text-red-600 ml-4 shrink-0`}
-                                >
-                                    Sign Out All
                                 </button>
                             )}
                         </div>
@@ -321,7 +314,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
     };
 
     return (
-        // Added onClick to close logic wrapper if this is rendered as a modal-like view
         <div 
             className="h-full w-full overflow-y-auto custom-scrollbar p-4 md:p-8 relative" 
             onClick={(e) => {
@@ -338,7 +330,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
             >
                 {/* --- BANNER SECTION --- */}
                 <div className="relative h-48 w-full bg-slate-200 group/banner">
-                    {/* Add Back Button if needed */}
                     {onClose && (
                         <button 
                             onClick={onClose}
@@ -360,7 +351,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                     
                     <div className="absolute inset-0 bg-black/10 group-hover/banner:bg-black/30 transition-colors duration-300"></div>
 
-                    {/* Upload Cover Button */}
                     <div className="absolute top-4 right-4">
                         <input 
                             type="file" 
@@ -387,7 +377,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                 {/* --- PROFILE HEADER SECTION --- */}
                 <div className="px-8 pb-8 relative">
                     <div className="flex flex-col md:flex-row items-start md:items-end -mt-12 md:-mt-16 mb-8 gap-6">
-                        {/* Avatar */}
                         <div className="flex flex-col items-center">
                             <div className={`w-32 h-32 md:w-40 md:h-40 rounded-2xl p-1.5 ${isDarkMode ? 'bg-slate-900' : 'bg-white'} shadow-2xl relative group/avatar`}>
                                 <div className="w-full h-full rounded-xl overflow-hidden relative bg-slate-100 dark:bg-slate-800">
@@ -429,7 +418,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                             </div>
                         </div>
 
-                        {/* Name & Info */}
                         <div className="flex-1 pt-2 md:pb-6">
                             <div className="flex items-center gap-2 group cursor-pointer" onClick={() => setEditingField('displayName')}>
                                 {editingField === 'displayName' ? (
@@ -463,7 +451,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                         </div>
                     </div>
 
-                    {/* --- MAIN LOGOUT BUTTON --- */}
                     <div className="mb-8">
                         <button 
                             onClick={handleLogoutWrapper}
@@ -475,7 +462,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                         </button>
                     </div>
 
-                    {/* --- PATIENT ONLY: CONNECT TO DOCTOR --- */}
                     {isPatient && (
                         <div className={`mb-8 p-6 rounded-2xl border-2 border-dashed ${isDarkMode ? 'bg-indigo-900/10 border-indigo-500/30' : 'bg-indigo-50 border-indigo-200'}`}>
                             <div className="flex items-start justify-between mb-4">
@@ -521,7 +507,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                         </div>
                     )}
 
-                    {/* --- FIELDS LIST SECTION --- */}
                     <div className="mt-8 space-y-6">
                         <InfoRow 
                             label="Phone Number" 
@@ -548,11 +533,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                                     fieldKey="hospital" 
                                     value={formData.hospital || ""} 
                                 />
-                                 <InfoRow 
-                                    label="Bio" 
-                                    fieldKey="bio" 
-                                    value={formData.bio || ""} 
-                                />
                             </>
                         )}
 
@@ -574,14 +554,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userProfile, isDarkMode, on
                             value="********" 
                             readOnly
                         />
-
-                        <InfoRow 
-                            label="Session Security" 
-                            fieldKey="device" 
-                            value="Manage active sessions" 
-                            readOnly
-                        />
-
                     </div>
                 </div>
             </motion.div>

@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera, Phone, Mail, ExternalLink, MessageCircle, MapPin, AlertTriangle, Syringe, Eye, Stethoscope } from 'lucide-react';
+import { Search, Filter, UserPlus, MoreHorizontal, LayoutGrid, List as ListIcon, Calendar, Activity, AlertCircle, CheckCircle, X, Save, Loader2, ShieldAlert, ChevronLeft, Droplet, ArrowUpRight, TrendingUp, Clock, Trash2, Edit2, Camera, Phone, Mail, ExternalLink, MessageCircle, MapPin, AlertTriangle, Syringe, Eye, Stethoscope, Lock } from 'lucide-react';
 import { Patient, DRGrade, DiagnosisRecord, Appointment } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -33,9 +34,23 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
 
   // Add Patient Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newPatient, setNewPatient] = useState<Partial<Patient>>({
-    name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', address: '', status: 'Active'
+  
+  // Expanded New Patient Form State to include Account details
+  const [newPatient, setNewPatient] = useState<{
+      name: string;
+      age: number;
+      gender: string;
+      history: string;
+      phone: string;
+      email: string;
+      address: string;
+      status: string;
+      password?: string;
+      confirmPassword?: string;
+  }>({
+    name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', address: '', status: 'Active', password: '', confirmPassword: ''
   });
+  
   const [isSaving, setIsSaving] = useState(false);
 
   const { t } = useLanguage();
@@ -152,6 +167,13 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const handleSavePatient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPatient.name || !newPatient.age || !currentUser) return;
+    
+    // Check password if filled
+    if (newPatient.password && newPatient.password !== newPatient.confirmPassword) {
+        alert("Passwords do not match.");
+        return;
+    }
+
     setIsSaving(true);
     try {
         await addPatient(currentUser.uid, {
@@ -165,8 +187,9 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
             status: newPatient.status as any || 'Active',
             lastExam: new Date().toISOString().split('T')[0]
         });
+        
         setIsAddModalOpen(false);
-        setNewPatient({ name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', address: '', status: 'Active' });
+        setNewPatient({ name: '', age: 0, gender: 'Male', history: '', phone: '', email: '', address: '', status: 'Active', password: '', confirmPassword: '' });
     } catch (err: any) {
         alert("Error: " + err.message);
     } finally {
@@ -221,12 +244,13 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
   const cardBorder = isDarkMode ? "border-slate-800" : "border-slate-100";
   const subText = isDarkMode ? "text-slate-400" : "text-slate-500";
   const accentText = isDarkMode ? "text-red-400" : "text-blue-600";
-  const cardBg = isDarkMode ? "bg-slate-950/50" : "bg-slate-50";
   const inputClass = isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200 text-slate-900";
   const tableHeaderClass = isDarkMode ? "bg-slate-900/50 text-slate-400" : "bg-slate-50 text-slate-500";
   const tableRowHover = isDarkMode ? "hover:bg-slate-800/50" : "hover:bg-slate-50";
 
+  // ... (Rest of Patient Detail View logic remains the same - skipping for brevity as main request is Modal & List)
   if (selectedPatientId && activePatient) {
+      // (Returning existing detailed view code block)
       return (
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
@@ -294,7 +318,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                           </div>
                           
                           {isEditing ? (
-                            // SỬA: Tăng max-h lên 70vh và pb-32 (khoảng trống đáy cực lớn)
                             <div className="w-full mb-4 overflow-y-auto max-h-[60vh] custom-scrollbar px-2 pb-40 border-b border-slate-100 dark:border-slate-800">
                                 <div className="space-y-4 pt-2">
                                     {/* Input Name */}
@@ -418,7 +441,6 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                         </button>
                                     </div>
                                     
-                                    {/* KHOẢNG TRỐNG AN TOÀN CUỐI CÙNG (DỰ PHÒNG) */}
                                     <div className="h-20 w-full opacity-0 pointer-events-none">Spacer</div>
                                 </div>
                             </div>
@@ -868,17 +890,40 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                     initial={{ opacity: 0, scale: 0.95, y: 20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                    className={`relative w-full max-w-lg p-8 rounded-3xl border shadow-2xl ${isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`}
+                    className={`relative w-full max-w-lg p-8 rounded-3xl border shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar ${isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`}
                 >
                     <div className="flex justify-between items-center mb-8">
                         <h2 className="text-xl font-black uppercase flex items-center">
                             <UserPlus size={24} className={`mr-3 ${isDarkMode ? 'text-red-500' : 'text-blue-600'}`} />
-                            {t.patients.new_patient}
+                            Create Patient Account
                         </h2>
                         <button onClick={() => setIsAddModalOpen(false)}><X size={20} /></button>
                     </div>
 
                     <form onSubmit={handleSavePatient} className="space-y-5">
+                        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 mb-4">
+                            <h3 className="text-xs font-bold uppercase mb-3 flex items-center"><Lock size={14} className="mr-2"/> Login Credentials</h3>
+                            <div className="space-y-3">
+                                <input 
+                                    type="email" placeholder="Email (Login ID)" required value={newPatient.email}
+                                    onChange={e => setNewPatient({...newPatient, email: e.target.value})}
+                                    className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
+                                />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input 
+                                        type="password" placeholder="Password" value={newPatient.password}
+                                        onChange={e => setNewPatient({...newPatient, password: e.target.value})}
+                                        className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
+                                    />
+                                    <input 
+                                        type="password" placeholder="Confirm Password" value={newPatient.confirmPassword}
+                                        onChange={e => setNewPatient({...newPatient, confirmPassword: e.target.value})}
+                                        className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-5">
                             <div className="col-span-2">
                                 <label className={`text-[10px] font-bold uppercase tracking-widest ${subText}`}>Full Name</label>
@@ -909,16 +954,11 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                                 </select>
                             </div>
                             <div className="col-span-2">
-                                <label className={`text-[10px] font-bold uppercase tracking-widest ${subText}`}>Contact (Optional)</label>
-                                <div className="grid grid-cols-2 gap-4 mt-2">
+                                <label className={`text-[10px] font-bold uppercase tracking-widest ${subText}`}>Phone & Contact</label>
+                                <div className="mt-2">
                                     <input 
-                                        type="text" placeholder="Phone" value={newPatient.phone}
+                                        type="text" placeholder="Phone Number" value={newPatient.phone}
                                         onChange={e => setNewPatient({...newPatient, phone: e.target.value})}
-                                        className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
-                                    />
-                                    <input 
-                                        type="email" placeholder="Email" value={newPatient.email}
-                                        onChange={e => setNewPatient({...newPatient, email: e.target.value})}
                                         className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-red-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'}`} 
                                     />
                                 </div>
@@ -940,7 +980,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                             className={`w-full py-4 rounded-xl font-black text-white uppercase text-xs tracking-widest flex items-center justify-center shadow-lg hover:brightness-110 transition-all ${isDarkMode ? 'bg-red-600' : 'bg-blue-600'}`}
                         >
                             {isSaving ? <Loader2 size={16} className="animate-spin mr-2" /> : <Save size={16} className="mr-2" />}
-                            Save Patient Record
+                            Create Patient Account
                         </button>
                     </form>
                 </motion.div>
