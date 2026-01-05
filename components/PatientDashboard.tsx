@@ -51,12 +51,12 @@ const getGlobalApiKey = () => {
 
 // --- TYPING ANIMATION COMPONENT ---
 const TypingIndicator = ({ isDarkMode }: { isDarkMode: boolean }) => (
-    <div className={`flex items-center space-x-1 p-3 rounded-2xl rounded-bl-sm w-16 h-10 mb-2 ${isDarkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-100 shadow-sm"}`}>
+    <div className={`flex items-center space-x-1 p-3 rounded-2xl rounded-bl-sm w-12 h-8 mb-2 ${isDarkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-100 shadow-sm"}`}>
         {[0, 1, 2].map((i) => (
             <motion.div
                 key={i}
                 className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? "bg-slate-400" : "bg-slate-500"}`}
-                animate={{ y: [0, -5, 0] }}
+                animate={{ y: [0, -4, 0] }}
                 transition={{
                     duration: 0.6,
                     repeat: Infinity,
@@ -211,17 +211,31 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         if (currentUser && currentTab === 'chat' && assignedDoctorId && chatMode === 'doctor') {
             const chatId = getChatId(currentUser.uid, assignedDoctorId);
             
+            // Cleanup function for when component unmounts to ensure we don't leave typing indicator on
+            const cleanupTyping = () => {
+                if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                setTypingStatus(chatId, currentUser.uid, false);
+            };
+
             const unsubChat = subscribeToMessages(chatId, (msgs) => setMessages(msgs));
             
             const unsubMeta = subscribeToChatMetadata(chatId, (session) => {
-                if (session && session.typing) {
-                    setIsDoctorTyping(!!session.typing[assignedDoctorId]);
+                if (session && session.typing && assignedDoctorId) {
+                    // Safety check: Don't show typing if I am the one typing (should be handled by senderId check but just in case)
+                    if (assignedDoctorId !== currentUser.uid) {
+                        setIsDoctorTyping(!!session.typing[assignedDoctorId]);
+                    }
                 } else {
                     setIsDoctorTyping(false);
                 }
             });
 
-            return () => { unsubChat(); unsubMeta(); setIsDoctorTyping(false); };
+            return () => { 
+                unsubChat(); 
+                unsubMeta(); 
+                setIsDoctorTyping(false);
+                cleanupTyping();
+            };
         }
     }, [currentUser, currentTab, assignedDoctorId, chatMode]);
 
@@ -614,8 +628,8 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     )
                                 )}
 
-                                {/* DOCTOR TYPING INDICATOR */}
-                                {chatMode === 'doctor' && isDoctorTyping && (
+                                {/* DOCTOR TYPING INDICATOR - WITH SAFETY CHECK */}
+                                {chatMode === 'doctor' && isDoctorTyping && assignedDoctorId !== currentUser?.uid && (
                                     <div className="flex w-full justify-start">
                                         <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white mr-2 self-end mb-1 shadow-sm">
                                             <Stethoscope size={12} />

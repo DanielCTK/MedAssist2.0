@@ -94,6 +94,12 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
         if (currentUser && selectedUser) {
             const chatId = getChatId(currentUser.uid, selectedUser.uid);
             
+            // Cleanup function ensuring we stop showing typing status when unmounting chat
+            const cleanupTyping = () => {
+                if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                setTypingStatus(chatId, currentUser.uid, false);
+            };
+
             // Subscribe Messages
             const unsubMsg = subscribeToMessages(chatId, (msgs) => {
                 setHumanMessages(msgs);
@@ -114,6 +120,7 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                 unsubMsg();
                 unsubMeta();
                 setIsOtherTyping(false);
+                cleanupTyping();
             };
         }
     }, [currentUser, selectedUser]);
