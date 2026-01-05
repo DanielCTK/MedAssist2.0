@@ -99,6 +99,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     const [inputMsg, setInputMsg] = useState("");
     const [isDoctorTyping, setIsDoctorTyping] = useState(false);
     const typingTimeoutRef = useRef<any>(null);
+    const doctorTypingTimeoutRef = useRef<any>(null); // For Failsafe
     
     // Chat State (AI)
     const [chatMode, setChatMode] = useState<'doctor' | 'ai'>('doctor');
@@ -238,6 +239,21 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
             };
         }
     }, [currentUser, currentTab, assignedDoctorId, chatMode]);
+
+    // Failsafe: Clear typing indicator automatically after 8 seconds or when a message arrives
+    useEffect(() => {
+        if (isDoctorTyping) {
+            if (doctorTypingTimeoutRef.current) clearTimeout(doctorTypingTimeoutRef.current);
+            doctorTypingTimeoutRef.current = setTimeout(() => {
+                setIsDoctorTyping(false);
+            }, 8000); // 8 second max typing timeout
+        }
+    }, [isDoctorTyping]);
+
+    // Failsafe 2: Clear typing when message count changes (message received)
+    useEffect(() => {
+        setIsDoctorTyping(false);
+    }, [messages.length]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
