@@ -15,19 +15,8 @@ interface HumanChatWidgetProps {
 
 // Helper to get API Key (Unified with Patient Dashboard)
 const getGlobalApiKey = () => {
-    const meta = import.meta as any;
-    try {
-        if (meta && meta.env && meta.env.VITE_GEMINI_API_KEY) {
-            return meta.env.VITE_GEMINI_API_KEY;
-        }
-    } catch(e) {}
-    
-    // Fallback for Node/Legacy env
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-        return process.env.API_KEY;
-    }
-    
-    return null;
+    // Access key mapped in vite.config.ts from VITE_GEMINI_API_KEY
+    return process.env.API_KEY;
 };
 
 // --- TYPING ANIMATION COMPONENT ---

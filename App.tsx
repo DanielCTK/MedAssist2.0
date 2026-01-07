@@ -7,6 +7,7 @@ import DiagnosisView from './components/DiagnosisView';
 import PatientList from './components/PatientList';
 import Inventory from './components/Inventory';
 import LandingPage from './components/LandingPage';
+import LearnMorePage from './components/LearnMorePage';
 import SettingsView from './components/SettingsView';
 import AIChatbot from './components/AIChatbot';
 import InsightsView from './components/InsightsView'; // Import new view
@@ -22,7 +23,7 @@ import { subscribeToActiveChats } from './services/chatService';
 // ==================================================================================
 // 🖼️ ASSETS CONFIGURATION
 // ==================================================================================
-const ASANOHA_PATTERN = `data:image/svg+xml,%3Csvg width='60' height='104' viewBox='0 0 60 104' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 52L60 0M30 52L60 104M30 52L0 104M30 52L0 0M30 0L0 52M30 104L0 52M30 0L60 52M30 104L60 52M0 52h60M30 0v104' stroke='%23888888' stroke-width='1' fill='none' opacity='0.07'/%3E%3C/svg%3E`;
+const ASANOHA_PATTERN = `data:image/svg+xml,%3Csvg width='60' height='104' viewBox='0 0 60 104' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 52L60 0M30 52L60 104M30 52L0 104M30 52L0 0M30 0L0 52M30 0L0 52M30 104L0 52M30 0L60 52M30 104L60 52M0 52h60M30 0v104' stroke='%23888888' stroke-width='1' fill='none' opacity='0.07'/%3E%3C/svg%3E`;
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -30,6 +31,7 @@ const App: React.FC = () => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [currentView, setCurrentView] = useState('dashboard'); 
   const [isDarkMode, setIsDarkMode] = useState(false); 
+  const [landingView, setLandingView] = useState<'home' | 'learn-more'>('home');
   
   // GLOBAL SEARCH STATE
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,6 +61,7 @@ const App: React.FC = () => {
          }
       } else {
          setUserProfile(null);
+         setLandingView('home');
       }
       setIsLoadingAuth(false);
     });
@@ -189,14 +192,28 @@ const App: React.FC = () => {
     <div className={`h-screen w-full font-sans overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <AnimatePresence mode="wait">
         {!currentUser ? (
-          <motion.div 
-            key="landing"
-            exit={{ opacity: 0, y: -50, filter: "blur(10px)" }}
-            transition={{ duration: 0.5, ease: "easeInOut" }}
-            className="absolute inset-0 z-50"
-          >
-            <LandingPage onEnter={() => {}} />
-          </motion.div>
+          <React.Fragment key="auth-flow">
+            {landingView === 'home' ? (
+                <motion.div 
+                    key="landing"
+                    exit={{ opacity: 0, y: -50, filter: "blur(10px)" }}
+                    transition={{ duration: 0.5, ease: "easeInOut" }}
+                    className="absolute inset-0 z-50"
+                >
+                    <LandingPage onEnter={() => {}} onNavigate={(view) => setLandingView(view)} />
+                </motion.div>
+            ) : (
+                <motion.div 
+                    key="learn-more" 
+                    initial={{ opacity: 0, x: '100%' }} 
+                    animate={{ opacity: 1, x: 0 }} 
+                    exit={{ opacity: 0, x: '100%' }} 
+                    className="absolute inset-0 z-50"
+                >
+                    <LearnMorePage onBack={() => setLandingView('home')} onEnter={() => {}} />
+                </motion.div>
+            )}
+          </React.Fragment>
         ) : (
           <motion.div 
             key="app"

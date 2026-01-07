@@ -33,20 +33,8 @@ const AVAILABLE_HOURS = [8, 9, 10, 11, 13, 14, 15, 16];
 
 // --- HELPER TO GET API KEY SAFELY ---
 const getGlobalApiKey = () => {
-    const meta = import.meta as any;
-    try {
-        // Priority 1: Vite Environment Variable
-        if (meta && meta.env && meta.env.VITE_GEMINI_API_KEY) {
-            return meta.env.VITE_GEMINI_API_KEY;
-        }
-    } catch(e) {}
-    
-    // Priority 2: Process Env (Polyfilled or Node)
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-        return process.env.API_KEY;
-    }
-    
-    return null;
+    // Access key mapped in vite.config.ts from VITE_GEMINI_API_KEY
+    return process.env.API_KEY;
 };
 
 // --- TYPING ANIMATION COMPONENT ---

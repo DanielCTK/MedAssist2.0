@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, X, Send, Loader2, Sparkles, Bot, Minimize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,15 +11,8 @@ interface Message {
     timestamp: Date;
 }
 
-// Experience #4: Frontend (Vite) uses import.meta.env.VITE_...
 const getGlobalApiKey = () => {
-    const meta = import.meta as any;
-    try {
-        if (meta && meta.env && meta.env.VITE_GEMINI_API_KEY) {
-            return meta.env.VITE_GEMINI_API_KEY;
-        }
-    } catch(e) {}
-    
+    // Access key mapped in vite.config.ts from VITE_GEMINI_API_KEY
     return process.env.API_KEY;
 };
 

@@ -1,25 +1,14 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, DRGrade, Patient, ReportData } from "../types";
 
 // NOTE: In a real production app, API calls should be routed through a backend to hide the key.
-// Experience #4: Frontend (Vite) uses import.meta.env.VITE_...
 const getClient = () => {
-  // Try VITE_ prefix first (Standard Vite), then fallback to process.env (Legacy/Polyfill)
-  const meta = import.meta as any;
-  let apiKey;
-  
-  try {
-      if (meta && meta.env && meta.env.VITE_GEMINI_API_KEY) {
-          apiKey = meta.env.VITE_GEMINI_API_KEY;
-      }
-  } catch(e) {}
-
-  if (!apiKey) {
-      apiKey = process.env.API_KEY;
-  }
+  // Access key mapped in vite.config.ts from VITE_GEMINI_API_KEY
+  const apiKey = process.env.API_KEY;
   
   if (!apiKey) {
-    throw new Error("API Key not found. Please set VITE_GEMINI_API_KEY in .env");
+    throw new Error("API Key not found. Please set VITE_GEMINI_API_KEY in your environment variables (e.g. Vercel Settings).");
   }
   return new GoogleGenAI({ apiKey });
 };
