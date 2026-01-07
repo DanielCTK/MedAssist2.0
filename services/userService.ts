@@ -49,7 +49,12 @@ export const setUserOffline = async (uid: string) => {
             isOnline: false,
             lastSeen: serverTimestamp()
         });
-    } catch (error) {
+    } catch (error: any) {
+        // Fix: Ignore permission errors which happen when setting offline after auth logout
+        // This occurs because the auth token is invalidated before the write completes
+        if (error.code === 'permission-denied' || error.message.includes('Missing or insufficient permissions')) {
+            return;
+        }
         console.error("Error setting user offline:", error);
     }
 };

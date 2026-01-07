@@ -3,13 +3,13 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserProfile, Appointment, DiagnosisRecord, ChatMessage } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X, Globe, MapPin, Camera, Loader2, Stethoscope, AlertTriangle, RefreshCw, Check, ArrowLeft, Eye, Brain, Sparkles, Bot } from 'lucide-react';
+import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X, Globe, MapPin, Camera, Loader2, Stethoscope, AlertTriangle, RefreshCw, Check, ArrowLeft, Eye, Brain, Sparkles, Bot, Image as ImageIcon } from 'lucide-react';
 import { User } from 'firebase/auth';
 import SettingsView from './SettingsView';
-import { subscribeToPatientAppointments, addAppointment } from '../services/scheduleService';
+import { subscribeToPatientAppointments, addAppointment, deleteAppointment } from '../services/scheduleService';
 import { subscribeToMessages, sendMessage, getChatId, setTypingStatus, subscribeToChatMetadata } from '../services/chatService';
 import { checkAndAutoLinkPatient } from '../services/patientService'; 
-import { subscribeToUserProfile } from '../services/userService'; 
+import { subscribeToUserProfile, uploadUserImage, updateUserProfile } from '../services/userService'; 
 import { collection, query, where, getDocs, limit, onSnapshot, or } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -33,7 +33,6 @@ const AVAILABLE_HOURS = [8, 9, 10, 11, 13, 14, 15, 16];
 
 // --- HELPER TO GET API KEY SAFELY ---
 const getGlobalApiKey = () => {
-    // Access key mapped in vite.config.ts from VITE_GEMINI_API_KEY
     return process.env.API_KEY;
 };
 
@@ -59,9 +58,9 @@ const TypingIndicator = ({ isDarkMode }: { isDarkMode: boolean }) => (
 const TabButton = ({ id, icon: Icon, label, currentTab, setCurrentTab, isDarkMode }: { id: TabID, icon: any, label: string, currentTab: TabID, setCurrentTab: (id: TabID) => void, isDarkMode: boolean }) => (
     <button 
         onClick={() => setCurrentTab(id)}
-        className={`flex flex-col items-center justify-center w-full py-3 transition-all duration-300 ${currentTab === id ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : 'text-slate-400 hover:text-slate-500'}`}
+        className={`flex flex-col items-center justify-center w-full py-3 transition-all duration-300 ${currentTab === id ? (isDarkMode ? 'text-pink-500' : 'text-rose-500') : 'text-slate-400 hover:text-slate-500'}`}
     >
-        <div className={`p-1.5 rounded-xl mb-1 transition-all ${currentTab === id ? (isDarkMode ? 'bg-blue-500/20 scale-110' : 'bg-blue-100 scale-110') : ''}`}>
+        <div className={`p-1.5 rounded-xl mb-1 transition-all ${currentTab === id ? (isDarkMode ? 'bg-pink-500/20 scale-110' : 'bg-rose-100 scale-110') : ''}`}>
             <Icon size={20} strokeWidth={currentTab === id ? 2.5 : 2} />
         </div>
         <span className="text-[9px] font-bold uppercase tracking-wider">{label}</span>
@@ -78,6 +77,10 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     const [loading, setLoading] = useState(true);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+
+    // Banner Upload State
+    const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+    const bannerInputRef = useRef<HTMLInputElement>(null);
 
     // Record Detail View State
     const [selectedRecord, setSelectedRecord] = useState<DiagnosisRecord | null>(null);
@@ -170,6 +173,24 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         }
     };
 
+    // --- BANNER UPLOAD HANDLER ---
+    const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0] && currentUser) {
+            setIsUploadingBanner(true);
+            try {
+                // Upload to Cloudinary/Storage
+                const url = await uploadUserImage(currentUser.uid, e.target.files[0], 'banner');
+                // Update Firestore
+                await updateUserProfile(currentUser.uid, { bannerURL: url });
+            } catch (error) {
+                console.error("Banner upload failed:", error);
+                alert("Failed to upload image. Please try again.");
+            } finally {
+                setIsUploadingBanner(false);
+            }
+        }
+    };
+
     // --- DATA FETCHING ---
     useEffect(() => {
         if (!currentUser) return;
@@ -200,7 +221,6 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         if (currentUser && currentTab === 'chat' && assignedDoctorId && chatMode === 'doctor') {
             const chatId = getChatId(currentUser.uid, assignedDoctorId);
             
-            // Cleanup function for when component unmounts to ensure we don't leave typing indicator on
             const cleanupTyping = () => {
                 if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
                 setTypingStatus(chatId, currentUser.uid, false);
@@ -210,7 +230,6 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
             
             const unsubMeta = subscribeToChatMetadata(chatId, (session) => {
                 if (session && session.typing && assignedDoctorId) {
-                    // Safety check: Don't show typing if I am the one typing (should be handled by senderId check but just in case)
                     if (assignedDoctorId !== currentUser.uid) {
                         setIsDoctorTyping(!!session.typing[assignedDoctorId]);
                     }
@@ -228,17 +247,15 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         }
     }, [currentUser, currentTab, assignedDoctorId, chatMode]);
 
-    // Failsafe: Clear typing indicator automatically after 8 seconds or when a message arrives
     useEffect(() => {
         if (isDoctorTyping) {
             if (doctorTypingTimeoutRef.current) clearTimeout(doctorTypingTimeoutRef.current);
             doctorTypingTimeoutRef.current = setTimeout(() => {
                 setIsDoctorTyping(false);
-            }, 8000); // 8 second max typing timeout
+            }, 8000); 
         }
     }, [isDoctorTyping]);
 
-    // Failsafe 2: Clear typing when message count changes (message received)
     useEffect(() => {
         setIsDoctorTyping(false);
     }, [messages.length]);
@@ -265,11 +282,10 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     const handleSendMessage = async () => {
         if (!inputMsg.trim() || !currentUser || !assignedDoctorId) return;
         const text = inputMsg;
-        setInputMsg(""); // Optimistic Clear
+        setInputMsg(""); 
         
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         
-        // Optimistic UI Update
         const tempMsg: ChatMessage = { id: `temp-${Date.now()}`, text, senderId: currentUser.uid, createdAt: { toMillis: () => Date.now() } };
         setMessages(prev => [...prev, tempMsg]);
 
@@ -282,19 +298,14 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         const text = aiInputMsg;
         setAiInputMsg("");
         
-        // Optimistic UI
         setAiMessages(prev => [...prev, { id: Date.now().toString(), text, sender: 'user', timestamp: new Date() }]);
         setIsAiThinking(true);
 
         try {
             const apiKey = getGlobalApiKey();
-            
-            if (!apiKey) {
-                throw new Error("API_KEY_MISSING");
-            }
+            if (!apiKey) throw new Error("API_KEY_MISSING");
             
             const ai = new GoogleGenAI({ apiKey });
-            // Corrected: Use ai.models.generateContent directly
             const response = await ai.models.generateContent({ 
                 model: 'gemini-2.5-flash',
                 contents: text,
@@ -304,30 +315,13 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                         : "You are a friendly medical AI assistant. Provide concise, easy-to-understand answers about eye health. If urgent, advise seeing a doctor immediately."
                 }
             });
-            
-            // Corrected: Access response.text directly (it's a property, not a function)
             const responseText = response.text || (language === 'vi' ? "Không có phản hồi." : "No response.");
-
             setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: responseText, sender: 'ai', timestamp: new Date() }]);
         } catch (error: any) {
             console.error("AI Error:", error);
-            
-            let errorMessage = language === 'vi' 
-                ? "Xin lỗi, đã xảy ra lỗi kết nối." 
-                : "Sorry, a connection error occurred.";
-
-            if (error.message === "API_KEY_MISSING") {
-                errorMessage = language === 'vi' 
-                    ? "Lỗi cấu hình: Thiếu API Key trong file .env" 
-                    : "Config Error: Missing API Key in .env file";
-            }
-
-            setAiMessages(prev => [...prev, { 
-                id: (Date.now()+1).toString(), 
-                text: errorMessage, 
-                sender: 'ai', 
-                timestamp: new Date() 
-            }]);
+            let errorMessage = language === 'vi' ? "Xin lỗi, đã xảy ra lỗi kết nối." : "Sorry, a connection error occurred.";
+            if (error.message === "API_KEY_MISSING") errorMessage = "Missing API Key";
+            setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: errorMessage, sender: 'ai', timestamp: new Date() }]);
         } finally {
             setIsAiThinking(false);
         }
@@ -365,6 +359,14 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         }
     };
 
+    const handleDismissDeclined = async (id: string) => {
+        try {
+            await deleteAppointment(id);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     const handleLogoutWrapper = async (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
@@ -381,12 +383,17 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
     };
 
     const latestScan = diagnosisHistory.length > 0 ? diagnosisHistory[0] : null;
-    const heroBackground = userProfile?.bannerURL || "https://images.unsplash.com/photo-1519681393798-38e43269d877?q=80&w=2070&auto=format&fit=crop";
+    const heroBackground = userProfile?.bannerURL || "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?q=80&w=2070&auto=format&fit=crop"; // New pinkish default
     const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Real Doctor Online Status Logic
     const isDoctorOnline = assignedDoctorProfile?.isOnline ?? false;
+    
+    const declinedAppointments = myAppointments.filter(a => a.status === 'Declined');
+    const upcomingAppointments = myAppointments.filter(a => a.status !== 'Declined' && a.status !== 'Done');
 
     // Styles
-    const bubbleUser = "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-md rounded-br-sm";
+    const bubbleUser = "bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-md rounded-br-sm";
     const bubbleOther = isDarkMode ? "bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-sm" : "bg-white text-slate-800 border border-slate-100 shadow-sm rounded-bl-sm";
 
     return (
@@ -404,7 +411,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={handleManualSync} disabled={isSyncing} className={`p-2 rounded-full flex items-center justify-center transition-all ${isDarkMode ? 'bg-slate-900 text-blue-400 hover:bg-slate-800' : 'bg-slate-100 text-blue-600 hover:bg-slate-200'}`}>
+                    <button onClick={handleManualSync} disabled={isSyncing} className={`p-2 rounded-full flex items-center justify-center transition-all ${isDarkMode ? 'bg-slate-900 text-pink-400 hover:bg-slate-800' : 'bg-slate-100 text-rose-600 hover:bg-slate-200'}`}>
                         <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
                     </button>
                     <button onClick={() => setLanguage(language === 'en' ? 'vi' : 'en')} className={`p-2 rounded-full flex items-center justify-center font-black text-[10px] w-9 h-9 border transition-all ${isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
@@ -415,7 +422,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                     </button>
                     <button className={`relative p-2 rounded-full ${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
                         <Bell size={18} />
-                        {myAppointments.some(a => a.status === 'Done') && <span className="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full border border-white"></span>}
+                        {(myAppointments.some(a => a.status === 'Done') || declinedAppointments.length > 0) && <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full border border-white animate-pulse"></span>}
                     </button>
                 </div>
             </header>
@@ -424,67 +431,213 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
             <main className="flex-1 overflow-y-auto custom-scrollbar p-0 relative">
                 <AnimatePresence mode="wait">
                     
-                    {/* VIEW: HOME */}
+                    {/* VIEW: HOME - PINK JAPAN TRIP STYLE */}
                     {currentTab === 'home' && (
-                        <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative min-h-full flex flex-col">
-                            {/* ... Hero Section ... */}
-                            <div className="relative w-full h-[500px] overflow-hidden rounded-b-[40px] shadow-2xl group">
-                                <div className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-1000" style={{ backgroundImage: `url('${heroBackground}')`, filter: isDarkMode ? 'brightness(0.6) saturate(1.2)' : 'brightness(1.05) saturate(1.1)' }} />
-                                <div className={`absolute inset-0 bg-gradient-to-b transition-colors duration-1000 ${isDarkMode ? 'from-transparent via-indigo-950/50 to-slate-950/95' : 'from-transparent via-sky-200/20 to-sky-600/90'}`} />
-                                <div className={`absolute inset-0 bg-gradient-to-r transition-colors duration-1000 ${isDarkMode ? 'from-slate-900/90 via-indigo-950/60 to-transparent' : 'from-sky-500/90 via-sky-400/50 to-transparent'}`} />
-                                <button onClick={() => setCurrentTab('profile')} className="absolute top-6 right-6 p-2.5 bg-black/20 backdrop-blur-md rounded-full text-white/80 hover:bg-white/20 hover:text-white transition-all opacity-80 hover:opacity-100 z-30 border border-white/10 hover:scale-110">
-                                    <Camera size={18} />
-                                </button>
-                                <div className="relative z-10 h-full flex flex-col justify-center px-8 md:px-12 max-w-2xl text-white">
-                                    <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }}>
-                                        <div className="flex items-center space-x-2 mb-4">
-                                            <div className="h-0.5 w-8 bg-white/60"></div>
-                                            <span className="text-xs font-bold uppercase tracking-[0.2em] text-white/90">{language === 'vi' ? 'HỆ THỐNG Y TẾ SỐ' : 'DIGITAL HEALTH SYSTEM'}</span>
+                        <motion.div 
+                            key="home" 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className={`relative min-h-full flex flex-col overflow-hidden ${isDarkMode ? 'bg-black' : 'bg-white'}`}
+                        >
+                            
+                            {/* Alert for Declined Appointments */}
+                            <AnimatePresence>
+                                {declinedAppointments.length > 0 && (
+                                    <div className="absolute top-0 left-0 right-0 z-40 px-6 pt-4">
+                                        {declinedAppointments.map(app => (
+                                            <motion.div 
+                                                key={app.id}
+                                                initial={{ opacity: 0, y: -20 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, y: -20 }}
+                                                className={`p-4 rounded-xl mb-2 flex items-center justify-between shadow-lg backdrop-blur-md border ${isDarkMode ? 'bg-rose-900/40 border-rose-500/30 text-white' : 'bg-rose-50 border-rose-200 text-rose-800'}`}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <AlertTriangle className="text-rose-500" size={20}/>
+                                                    <div>
+                                                        <p className="text-xs font-bold uppercase">{language === 'vi' ? 'Yêu cầu bị từ chối' : 'Appointment Declined'}</p>
+                                                        <p className="text-sm font-medium">{app.title} on {new Date(app.date).toLocaleDateString()}</p>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => handleDismissDeclined(app.id)} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${isDarkMode ? 'bg-white/10 hover:bg-white/20' : 'bg-rose-100 hover:bg-rose-200'} transition-colors`}>
+                                                    {language === 'vi' ? 'Đã hiểu' : 'Dismiss'}
+                                                </button>
+                                            </motion.div>
+                                        ))}
+                                    </div>
+                                )}
+                            </AnimatePresence>
+
+                            {/* SPLIT HERO SECTION - PINK THEME */}
+                            <div className="relative w-full min-h-[600px] flex flex-col md:flex-row">
+                                {/* LEFT: Content Area */}
+                                <div className={`w-full md:w-1/2 relative z-20 flex flex-col justify-center px-8 md:px-16 py-12 ${isDarkMode ? 'bg-black text-white' : 'bg-white text-slate-900'}`}>
+                                    {/* Top Left Blob Decoration */}
+                                    <div className={`absolute top-0 left-0 w-64 h-64 rounded-br-full blur-3xl opacity-40 pointer-events-none ${isDarkMode ? 'bg-rose-900' : 'bg-pink-100'}`}></div>
+
+                                    <motion.div 
+                                        initial={{ opacity: 0, x: -50 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{ duration: 0.8, ease: "easeOut" }}
+                                        className="relative"
+                                    >
+                                        <div className="flex items-center space-x-2 mb-6">
+                                            <span className={`text-xs font-bold uppercase tracking-[0.25em] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>MEDASSIST SYSTEM</span>
                                         </div>
-                                        <h1 className="text-5xl md:text-6xl font-black leading-tight mb-6 drop-shadow-lg text-white">
-                                            {language === 'vi' ? 'Sức Khỏe' : 'Health'} <br/>
-                                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-100 to-blue-200">{language === 'vi' ? 'Tầm Nhìn Mới' : 'Reimagined.'}</span>
+                                        
+                                        <h1 className="text-5xl md:text-7xl font-black leading-[0.95] mb-6">
+                                            WELCOME TO <br/>
+                                            <span className="text-rose-500">MEDASSIST</span>
                                         </h1>
-                                        <p className="text-lg text-white/90 mb-8 max-w-md leading-relaxed font-medium drop-shadow-md">
-                                            {language === 'vi' ? 'Theo dõi sức khỏe võng mạc, quản lý lịch hẹn và kết nối với bác sĩ chuyên khoa mọi lúc, mọi nơi.' : 'Track retina health, manage appointments, and connect with specialists anytime, anywhere.'}
+                                        
+                                        <p className="text-sm md:text-lg opacity-70 mb-10 max-w-md font-medium leading-relaxed">
+                                            {language === 'vi' 
+                                                ? 'Nền tảng y tế thông minh, kết nối bạn với chuyên gia và theo dõi sức khỏe võng mạc tức thì.' 
+                                                : 'An intelligent healthcare platform connecting you with specialists and tracking retina health instantly.'}
                                         </p>
-                                        <button onClick={() => setIsBookModalOpen(true)} className="px-8 py-4 bg-white text-blue-600 rounded-full font-bold uppercase text-xs tracking-widest hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] transition-all flex items-center w-max">
-                                            {language === 'vi' ? 'Bắt Đầu Ngay' : 'Get Started'} <ChevronRight size={16} className="ml-2"/>
+
+                                        <button 
+                                            onClick={() => setIsBookModalOpen(true)}
+                                            className="px-10 py-4 rounded-full bg-rose-500 text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-rose-200 hover:bg-rose-600 hover:scale-105 transition-all"
+                                        >
+                                            {language === 'vi' ? 'Bắt Đầu Ngay' : 'Get Started!'} 
                                         </button>
                                     </motion.div>
                                 </div>
-                            </div>
-                            <div className="px-6 -mt-16 relative z-20 pb-20">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }} className={`p-6 rounded-3xl backdrop-blur-xl border shadow-xl flex items-center justify-between hover:-translate-y-2 hover:shadow-2xl transition-all duration-300 ${isDarkMode ? 'bg-slate-900/80 border-slate-700 hover:border-slate-600' : 'bg-white/80 border-white hover:border-blue-200'}`}>
-                                        <div>
-                                            <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">{language === 'vi' ? 'Kết quả gần nhất' : 'Latest Result'}</p>
-                                            <h3 className={`text-xl font-bold ${latestScan?.grade === 0 ? 'text-green-500' : 'text-orange-500'}`}>
-                                                {latestScan ? (latestScan.grade === 0 ? (language === 'vi' ? 'Võng Mạc Khỏe' : 'Healthy Retina') : `Grade ${latestScan.grade} DR`) : (language === 'vi' ? 'Chưa có dữ liệu' : 'No Data')}
-                                            </h3>
-                                            <p className="text-xs opacity-60 mt-1">{latestScan ? new Date(latestScan.date).toLocaleDateString() : (language === 'vi' ? 'Liên hệ bác sĩ để khám' : 'Contact doctor for scan')}</p>
-                                        </div>
-                                        <div className={`p-4 rounded-full ${latestScan?.grade === 0 ? 'bg-green-500/10 text-green-500' : 'bg-orange-500/10 text-orange-500'}`}><Activity size={24} /></div>
-                                    </motion.div>
-                                    <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.5 }} className={`p-6 rounded-3xl backdrop-blur-xl border shadow-xl flex items-center justify-between cursor-pointer hover:-translate-y-2 hover:shadow-2xl transition-all duration-300 ${isDarkMode ? 'bg-slate-900/80 border-slate-700 hover:border-slate-600' : 'bg-white/80 border-white hover:border-blue-200'}`} onClick={() => setCurrentTab('schedule')}>
-                                        <div>
-                                            <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">{language === 'vi' ? 'Lịch hẹn sắp tới' : 'Next Appointment'}</p>
-                                            <h3 className="text-xl font-bold">{myAppointments.length > 0 ? new Date(myAppointments[0].date).toLocaleDateString() : (language === 'vi' ? 'Trống' : 'None')}</h3>
-                                            <p className="text-xs opacity-60 mt-1">{myAppointments.length > 0 ? myAppointments[0].title : (language === 'vi' ? 'Đặt lịch ngay' : 'Book now')}</p>
-                                        </div>
-                                        <div className="p-4 rounded-full bg-blue-500/10 text-blue-500"><Calendar size={24} /></div>
-                                    </motion.div>
-                                </div>
-                                <div className="mt-8">
-                                    <h4 className="text-sm font-bold uppercase tracking-wider opacity-60 mb-4 ml-2">{language === 'vi' ? 'Dịch Vụ' : 'Services'}</h4>
-                                    <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
-                                        {[{ icon: MessageCircle, label: language === 'vi' ? 'Tư Vấn' : 'Chat Dr.', color: 'text-purple-500', action: () => setCurrentTab('chat') }, { icon: FileText, label: language === 'vi' ? 'Hồ Sơ' : 'Records', color: 'text-emerald-500', action: () => setCurrentTab('records') }, { icon: MapPin, label: language === 'vi' ? 'Phòng Khám' : 'Clinics', color: 'text-red-500', action: () => {} }, { icon: Globe, label: language === 'vi' ? 'Tin Tức' : 'News', color: 'text-blue-500', action: () => {} }].map((item, idx) => (
-                                            <motion.button key={idx} whileHover={{ y: -5, scale: 1.05 }} onClick={item.action} className={`min-w-[100px] p-4 rounded-2xl flex flex-col items-center justify-center gap-2 border shadow-sm transition-all duration-300 ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 hover:border-blue-200'}`}>
-                                                <item.icon size={24} className={item.color} />
-                                                <span className="text-xs font-bold">{item.label}</span>
-                                            </motion.button>
-                                        ))}
+
+                                {/* RIGHT: Visual & Wavy Shape */}
+                                <div className={`w-full md:w-1/2 relative min-h-[400px] md:min-h-auto overflow-hidden`}>
+                                    
+                                    {/* Fluid Wave Separator (Pink Style) */}
+                                    <div className="absolute top-0 bottom-0 left-[-2px] w-full h-full z-20 pointer-events-none md:block hidden text-white dark:text-black">
+                                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className={`h-full w-auto fill-current ${isDarkMode ? 'text-black' : 'text-white'}`}>
+                                            <path d="M0 0 V100 C 40 80 60 20 25 0 Z" />
+                                        </svg>
                                     </div>
+                                    
+                                    {/* Mobile Wave (Top to Bottom) */}
+                                    <div className={`absolute top-[-1px] left-0 w-full z-20 md:hidden block ${isDarkMode ? 'text-black' : 'text-white'}`}>
+                                        <svg viewBox="0 0 1440 320" className="w-full fill-current">
+                                            <path fillOpacity="1" d="M0,192L48,197.3C96,203,192,213,288,192C384,171,480,117,576,112C672,107,768,149,864,160C960,171,1056,149,1152,133.3C1248,117,1344,107,1392,101.3L1440,96L1440,0L1392,0C1344,0,1248,0,1152,0C1056,0,960,0,864,0C768,0,672,0,576,0C480,0,384,0,288,0C192,0,96,0,48,0L0,0Z"></path>
+                                        </svg>
+                                    </div>
+
+                                    {/* Background Image (User Custom) */}
+                                    <motion.div 
+                                        initial={{ scale: 1.1, opacity: 0 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        transition={{ duration: 1 }}
+                                        className="absolute inset-0 bg-cover bg-center"
+                                        style={{ 
+                                            backgroundImage: `url('${userProfile?.bannerURL || heroBackground}')`,
+                                            filter: isDarkMode ? 'brightness(0.6) contrast(1.2)' : 'brightness(1)'
+                                        }}
+                                    />
+                                    <div className={`absolute inset-0 bg-gradient-to-t ${isDarkMode ? 'from-black/80' : 'from-rose-500/20'} to-transparent mix-blend-overlay`} />
+
+                                    {/* Wallpaper Button */}
+                                    <div className="absolute top-4 right-4 z-30">
+                                        <button 
+                                            onClick={() => bannerInputRef.current?.click()}
+                                            disabled={isUploadingBanner}
+                                            className="p-3 bg-white/20 backdrop-blur-md text-white rounded-full hover:bg-white hover:text-rose-500 transition-all shadow-lg border border-white/30"
+                                            title="Change Wallpaper"
+                                        >
+                                            {isUploadingBanner ? <Loader2 size={20} className="animate-spin" /> : <ImageIcon size={20} />}
+                                        </button>
+                                        <input 
+                                            type="file" 
+                                            ref={bannerInputRef} 
+                                            onChange={handleBannerUpload}
+                                            className="hidden" 
+                                            accept="image/*"
+                                        />
+                                    </div>
+
+                                    {/* Falling Petals (Decor) */}
+                                    {[...Array(5)].map((_, i) => (
+                                        <motion.div
+                                            key={i}
+                                            className="absolute text-white/60 pointer-events-none"
+                                            initial={{ y: -50, x: Math.random() * 400, opacity: 0, rotate: 0 }}
+                                            animate={{ y: 600, x: (Math.random() - 0.5) * 200 + (Math.random() * 400), opacity: [0, 1, 0], rotate: 360 }}
+                                            transition={{ 
+                                                duration: 8 + Math.random() * 8, 
+                                                repeat: Infinity, 
+                                                delay: i * 2,
+                                                ease: "linear"
+                                            }}
+                                            style={{ left: `${20 + Math.random() * 60}%` }}
+                                        >
+                                            <div className="w-3 h-3 rounded-full bg-pink-200 blur-[1px]" style={{ borderRadius: '50% 0 50% 50%'}} />
+                                        </motion.div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* CARDS SECTION */}
+                            <div className="px-6 md:px-16 -mt-10 md:-mt-20 relative z-30 pb-20">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    
+                                    {/* Card 1 */}
+                                    <motion.div 
+                                        initial={{ y: 50, opacity: 0 }} 
+                                        animate={{ y: 0, opacity: 1 }} 
+                                        transition={{ delay: 0.3 }}
+                                        className={`p-6 rounded-3xl backdrop-blur-xl border shadow-lg flex flex-col justify-between hover:-translate-y-2 transition-all duration-300 ${isDarkMode ? 'bg-slate-900/90 border-slate-700 hover:border-rose-500' : 'bg-white/90 border-white hover:border-rose-300'}`}
+                                    >
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div>
+                                                <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">{language === 'vi' ? 'Kết quả gần nhất' : 'Latest Result'}</p>
+                                                <h3 className={`text-xl font-black ${latestScan?.grade === 0 ? 'text-green-500' : 'text-orange-500'}`}>
+                                                    {latestScan ? (latestScan.grade === 0 ? (language === 'vi' ? 'Khỏe Mạnh' : 'Healthy') : `Grade ${latestScan.grade} DR`) : (language === 'vi' ? 'Chưa có dữ liệu' : 'No Data')}
+                                                </h3>
+                                            </div>
+                                            <div className={`p-3 rounded-full ${latestScan?.grade === 0 ? 'bg-green-100 text-green-500' : 'bg-orange-100 text-orange-500'}`}><Activity size={20} /></div>
+                                        </div>
+                                    </motion.div>
+
+                                    {/* Card 2 */}
+                                    <motion.div 
+                                        initial={{ y: 50, opacity: 0 }} 
+                                        animate={{ y: 0, opacity: 1 }} 
+                                        transition={{ delay: 0.4 }}
+                                        className={`p-6 rounded-3xl backdrop-blur-xl border shadow-lg flex flex-col justify-between cursor-pointer hover:-translate-y-2 transition-all duration-300 ${isDarkMode ? 'bg-slate-900/90 border-slate-700 hover:border-pink-500' : 'bg-white/90 border-white hover:border-pink-300'}`} 
+                                        onClick={() => setCurrentTab('schedule')}
+                                    >
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div>
+                                                <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">{language === 'vi' ? 'Lịch hẹn sắp tới' : 'Next Appointment'}</p>
+                                                <h3 className="text-xl font-bold">{upcomingAppointments.length > 0 ? new Date(upcomingAppointments[0].date).toLocaleDateString() : (language === 'vi' ? 'Trống' : 'None')}</h3>
+                                            </div>
+                                            <div className="p-3 rounded-full bg-pink-100 text-pink-500"><Calendar size={20} /></div>
+                                        </div>
+                                    </motion.div>
+
+                                    {/* Card 3 */}
+                                    <motion.div 
+                                        initial={{ y: 50, opacity: 0 }} 
+                                        animate={{ y: 0, opacity: 1 }} 
+                                        transition={{ delay: 0.5 }}
+                                        className={`p-6 rounded-3xl backdrop-blur-xl border shadow-lg flex flex-col justify-center ${isDarkMode ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-white'}`}
+                                    >
+                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-3">{language === 'vi' ? 'Dịch Vụ Nhanh' : 'Quick Access'}</p>
+                                        <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                                            {[{ icon: MessageCircle, label: 'Chat', color: 'text-rose-500', action: () => setCurrentTab('chat') }, { icon: FileText, label: 'Records', color: 'text-pink-500', action: () => setCurrentTab('records') }].map((item, idx) => (
+                                                <motion.button 
+                                                    key={idx} 
+                                                    whileHover={{ y: -3, scale: 1.05 }} 
+                                                    onClick={item.action} 
+                                                    className={`min-w-[60px] h-[60px] rounded-2xl flex flex-col items-center justify-center gap-1 border shadow-sm transition-all duration-300 ${isDarkMode ? 'bg-slate-800 border-slate-700 hover:bg-slate-700' : 'bg-white border-slate-100 hover:bg-rose-50'}`}
+                                                >
+                                                    <item.icon size={18} className={item.color} />
+                                                    <span className="text-[9px] font-bold">{item.label}</span>
+                                                </motion.button>
+                                            ))}
+                                        </div>
+                                    </motion.div>
+
                                 </div>
                             </div>
                         </motion.div>
@@ -535,14 +688,14 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                         <h2 className="text-2xl font-black mb-6">{t.patientDashboard.history}</h2>
                                         {chartData.length > 0 && (
                                             <div className={`mb-8 p-6 rounded-2xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
-                                                <div className="flex justify-between items-center mb-6"><h3 className={`text-lg font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>{language === 'vi' ? 'Biểu Đồ Sức Khỏe' : 'Health Curve'}</h3><TrendingUp size={18} className={isDarkMode ? 'text-teal-400' : 'text-teal-600'} /></div>
-                                                <div className="h-[200px] w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><defs><linearGradient id="colorGradePatient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#14b8a6" stopOpacity={0.3}/><stop offset="95%" stopColor="#14b8a6" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} /><YAxis tickCount={5} domain={[0, 4]} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} /><Tooltip contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} itemStyle={{ color: isDarkMode ? '#fff' : '#000', fontSize: '12px', fontWeight: 'bold' }} labelFormatter={(label, payload) => payload[0]?.payload?.fullDate || label} /><Area type="monotone" dataKey="grade" stroke="#14b8a6" strokeWidth={3} fillOpacity={1} fill="url(#colorGradePatient)" /></AreaChart></ResponsiveContainer></div>
+                                                <div className="flex justify-between items-center mb-6"><h3 className={`text-lg font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>{language === 'vi' ? 'Biểu Đồ Sức Khỏe' : 'Health Curve'}</h3><TrendingUp size={18} className={isDarkMode ? 'text-rose-400' : 'text-rose-600'} /></div>
+                                                <div className="h-[200px] w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><defs><linearGradient id="colorGradePatient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3}/><stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} /><YAxis tickCount={5} domain={[0, 4]} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} /><Tooltip contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} itemStyle={{ color: isDarkMode ? '#fff' : '#000', fontSize: '12px', fontWeight: 'bold' }} labelFormatter={(label, payload) => payload[0]?.payload?.fullDate || label} /><Area type="monotone" dataKey="grade" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorGradePatient)" /></AreaChart></ResponsiveContainer></div>
                                             </div>
                                         )}
                                         {diagnosisHistory.length === 0 ? (
                                             <div className="text-center py-20 opacity-50"><FileText size={48} className="mx-auto mb-4"/><p>{language === 'vi' ? 'Chưa có hồ sơ bệnh án.' : 'No diagnosis history yet.'}</p><p className="text-xs mt-2 text-slate-400">{language === 'vi' ? 'Hồ sơ sẽ xuất hiện khi Bác sĩ cập nhật.' : 'Records appear here when the Doctor updates them.'}</p></div>
                                         ) : (
-                                            <div className="space-y-3">{diagnosisHistory.map((rec) => (<div key={rec.id} onClick={() => setSelectedRecord(rec)} className={`p-4 rounded-2xl border flex items-center justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-xl cursor-pointer ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-blue-200'}`}><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${rec.grade === 0 ? 'bg-emerald-100 text-emerald-600' : rec.grade <= 2 ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>{rec.grade === 0 ? 'A' : rec.grade <= 2 ? 'B' : 'C'}</div><div><p className="text-xs font-bold opacity-50 uppercase tracking-wider">{new Date(rec.date).toLocaleDateString()}</p><h4 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{rec.grade === 0 ? "Healthy Retina" : `Diabetic Retinopathy (Stage ${rec.grade})`}</h4>{rec.doctorNotes && <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1 italic">Dr: "{rec.doctorNotes}"</p>}</div></div><ChevronRight size={16} className="opacity-30" /></div>))}</div>
+                                            <div className="space-y-3">{diagnosisHistory.map((rec) => (<div key={rec.id} onClick={() => setSelectedRecord(rec)} className={`p-4 rounded-2xl border flex items-center justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-xl cursor-pointer ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-rose-200'}`}><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${rec.grade === 0 ? 'bg-emerald-100 text-emerald-600' : rec.grade <= 2 ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>{rec.grade === 0 ? 'A' : rec.grade <= 2 ? 'B' : 'C'}</div><div><p className="text-xs font-bold opacity-50 uppercase tracking-wider">{new Date(rec.date).toLocaleDateString()}</p><h4 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{rec.grade === 0 ? "Healthy Retina" : `Diabetic Retinopathy (Stage ${rec.grade})`}</h4>{rec.doctorNotes && <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1 italic">Dr: "{rec.doctorNotes}"</p>}</div></div><ChevronRight size={16} className="opacity-30" /></div>))}</div>
                                         )}
                                     </motion.div>
                                 )}
@@ -553,19 +706,24 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                     {/* VIEW: CHAT */}
                     {currentTab === 'chat' && (
                         <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex flex-col relative overflow-hidden">
-                            {/* --- CHAT HEADER --- */}
+                            {/* ... (Keep existing chat logic but potentially adjust colors if needed) ... */}
                             <div className={`p-4 shadow-sm border-b z-10 flex flex-col gap-4 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-3">
-                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-lg ${chatMode === 'doctor' ? 'bg-gradient-to-br from-blue-500 to-indigo-600' : 'bg-gradient-to-br from-purple-500 to-pink-600'}`}>
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-lg ${chatMode === 'doctor' ? 'bg-gradient-to-br from-rose-500 to-pink-600' : 'bg-gradient-to-br from-purple-500 to-pink-600'}`}>
                                             {chatMode === 'doctor' ? <Stethoscope size={20} /> : <Bot size={20} />}
                                         </div>
                                         <div>
                                             <h3 className="text-sm font-bold">{chatMode === 'doctor' ? (userProfile?.hospital || (language === 'vi' ? 'Bác sĩ phụ trách' : 'Your Doctor')) : (language === 'vi' ? 'Trợ lý AI' : 'AI Assistant')}</h3>
                                             <div className="flex items-center">
-                                                <span className={`w-2 h-2 rounded-full mr-2 ${chatMode === 'ai' || isDoctorOnline ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                                                <div className={`w-2 h-2 rounded-full mr-1.5 ${chatMode === 'ai' ? 'bg-green-500 animate-pulse' : isDoctorOnline ? 'bg-green-500' : 'bg-slate-400'}`} />
                                                 <span className="text-[10px] opacity-60 uppercase font-bold tracking-wider">
-                                                    {chatMode === 'ai' ? 'Online' : assignedDoctorId ? (isDoctorOnline ? (language === 'vi' ? 'Trực tuyến' : 'Online') : (language === 'vi' ? 'Ngoại tuyến' : 'Offline')) : (language === 'vi' ? 'Chưa liên kết' : 'Not Linked')}
+                                                    {chatMode === 'ai' 
+                                                        ? 'Always Online' 
+                                                        : assignedDoctorId 
+                                                            ? (isDoctorOnline ? (language === 'vi' ? 'Đang hoạt động' : 'Active Now') : (language === 'vi' ? 'Ngoại tuyến' : 'Offline')) 
+                                                            : (language === 'vi' ? 'Chưa liên kết' : 'Not Linked')
+                                                    }
                                                 </span>
                                             </div>
                                         </div>
@@ -587,7 +745,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     />
                                     <button 
                                         onClick={() => setChatMode('doctor')}
-                                        className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider relative z-10 flex items-center justify-center gap-2 transition-colors ${chatMode === 'doctor' ? (isDarkMode ? 'text-white' : 'text-blue-600') : 'text-slate-500'}`}
+                                        className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider relative z-10 flex items-center justify-center gap-2 transition-colors ${chatMode === 'doctor' ? (isDarkMode ? 'text-white' : 'text-rose-600') : 'text-slate-500'}`}
                                     >
                                         <UserIcon size={12} /> {language === 'vi' ? 'Bác Sĩ' : 'Doctor'}
                                     </button>
@@ -609,7 +767,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                             <AlertTriangle size={48} className="text-yellow-500 mb-4" />
                                             <p className="font-bold">{language === 'vi' ? 'Chưa liên kết với Bác sĩ' : 'No Doctor Assigned'}</p>
                                             <p className="text-xs mt-2 max-w-xs">{language === 'vi' ? 'Vui lòng vào phần "Cá Nhân" và nhập email bác sĩ để kết nối.' : 'Go to "Profile" and link your doctor via email to start chatting.'}</p>
-                                            <button onClick={() => setCurrentTab('profile')} className="mt-4 text-xs font-bold text-blue-500 underline">{language === 'vi' ? 'Đi tới Cài đặt' : 'Go to Settings'}</button>
+                                            <button onClick={() => setCurrentTab('profile')} className="mt-4 text-xs font-bold text-rose-500 underline">{language === 'vi' ? 'Đi tới Cài đặt' : 'Go to Settings'}</button>
                                         </div>
                                     ) : messages.length === 0 ? (
                                         <div className="text-center py-10 opacity-50"><MessageCircle size={40} className="mx-auto mb-2" /><p className="text-xs">{language === 'vi' ? 'Bắt đầu trò chuyện với bác sĩ.' : 'Start chatting with your doctor.'}</p></div>
@@ -683,7 +841,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                 <button 
                                     onClick={chatMode === 'doctor' ? handleSendMessage : handleSendAI} 
                                     disabled={chatMode === 'doctor' ? !inputMsg.trim() : (!aiInputMsg.trim() || isAiThinking)} 
-                                    className={`p-3 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md ${chatMode === 'doctor' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                                    className={`p-3 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md ${chatMode === 'doctor' ? 'bg-rose-500 hover:bg-rose-600' : 'bg-purple-600 hover:bg-purple-700'}`}
                                 >
                                     <Send size={16} />
                                 </button>
@@ -696,11 +854,11 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                         <motion.div key="schedule" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6">
                              <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-2xl font-black">{t.patientDashboard.appointments}</h2>
-                                <button onClick={() => setIsBookModalOpen(true)} className="p-2 bg-blue-600 text-white rounded-full shadow-lg hover:scale-110 transition-transform"><Plus size={20}/></button>
+                                <button onClick={() => setIsBookModalOpen(true)} className="p-2 bg-rose-500 text-white rounded-full shadow-lg hover:scale-110 transition-transform"><Plus size={20}/></button>
                              </div>
                              <div className="space-y-3">
-                                {myAppointments.length > 0 ? myAppointments.map(app => (
-                                    <div key={app.id} className={`p-5 rounded-2xl border transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-blue-200'} flex gap-4`}>
+                                {myAppointments.filter(a => a.status !== 'Declined').length > 0 ? myAppointments.filter(a => a.status !== 'Declined').map(app => (
+                                    <div key={app.id} className={`p-5 rounded-2xl border transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-rose-200'} flex gap-4`}>
                                         <div className="flex flex-col items-center justify-center px-4 border-r border-slate-200 dark:border-slate-800">
                                             <span className="text-xs font-bold uppercase text-slate-400">{new Date(app.date).toLocaleDateString('en-US', {month: 'short'})}</span>
                                             <span className="text-xl font-black">{new Date(app.date).getDate()}</span>
@@ -759,7 +917,7 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Reason for Visit</label>
                                     <div className="flex flex-wrap gap-2">
                                         {APPOINTMENT_TYPES.map((type) => (
-                                            <button key={type} type="button" onClick={() => setSelectedReasonType(type)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${selectedReasonType === type ? 'bg-blue-600 text-white border-blue-600' : `${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'}`}`}>{type}</button>
+                                            <button key={type} type="button" onClick={() => setSelectedReasonType(type)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${selectedReasonType === type ? 'bg-rose-500 text-white border-rose-500' : `${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500' : 'bg-white border-slate-200 text-slate-600 hover:border-rose-300'}`}`}>{type}</button>
                                         ))}
                                     </div>
                                 </div>
@@ -770,8 +928,8 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                              <button key={opt.label} type="button" onClick={() => { const d = new Date(); d.setDate(d.getDate() + opt.days); setNewBookDate(d.toISOString().split('T')[0]); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all whitespace-nowrap ${isDarkMode ? 'border-slate-700 hover:bg-slate-800 text-slate-400' : 'border-slate-200 hover:bg-slate-100 text-slate-500'}`}>{opt.label}</button>
                                         ))}
                                     </div>
-                                    <div className={`relative flex items-center p-3 rounded-xl border ${isDarkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-200'} focus-within:border-blue-500 transition-colors`}>
-                                        <Calendar size={16} onClick={openDatePicker} className={`mr-3 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'} cursor-pointer hover:text-blue-500`}/>
+                                    <div className={`relative flex items-center p-3 rounded-xl border ${isDarkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-200'} focus-within:border-rose-500 transition-colors`}>
+                                        <Calendar size={16} onClick={openDatePicker} className={`mr-3 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'} cursor-pointer hover:text-rose-500`}/>
                                         <input ref={dateInputRef} required type="date" min={todayStr} value={newBookDate} onChange={e => setNewBookDate(e.target.value)} className={`w-full bg-transparent outline-none text-sm font-bold ${isDarkMode ? 'text-white [&::-webkit-calendar-picker-indicator]:invert' : 'text-slate-900'}`} />
                                     </div>
                                     <p className="text-[9px] text-slate-500 mt-2 ml-1">{language === 'vi' ? 'Nhập ngày (ngày/tháng/năm) hoặc chọn biểu tượng lịch.' : 'Type date (DD/MM/YYYY) or tap icon to pick.'}</p>
@@ -780,15 +938,15 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Available Slot</label>
                                     <div className="grid grid-cols-4 gap-2">
                                         {AVAILABLE_HOURS.map((hour) => (
-                                            <button key={hour} type="button" onClick={() => setSelectedTimeSlot(hour)} className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center transition-all ${selectedTimeSlot === hour ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : `${isDarkMode ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}`}>{hour}:00</button>
+                                            <button key={hour} type="button" onClick={() => setSelectedTimeSlot(hour)} className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center transition-all ${selectedTimeSlot === hour ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' : `${isDarkMode ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}`}>{hour}:00</button>
                                         ))}
                                     </div>
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Additional Notes</label>
-                                    <textarea value={newBookReason} onChange={e => setNewBookReason(e.target.value)} className={`w-full p-3 rounded-xl border outline-none text-sm min-h-[80px] ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-blue-500' : 'bg-slate-50 border-slate-200 focus:border-blue-500'}`} placeholder="Describe symptoms..." />
+                                    <textarea value={newBookReason} onChange={e => setNewBookReason(e.target.value)} className={`w-full p-3 rounded-xl border outline-none text-sm min-h-[80px] ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-rose-500' : 'bg-slate-50 border-slate-200 focus:border-rose-500'}`} placeholder="Describe symptoms..." />
                                 </div>
-                                <button type="submit" className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl uppercase text-xs tracking-widest shadow-lg shadow-blue-600/30 hover:brightness-110 hover:scale-[1.02] transition-all flex items-center justify-center">Confirm Request <Check size={16} className="ml-2"/></button>
+                                <button type="submit" className="w-full py-4 bg-rose-500 text-white font-bold rounded-xl uppercase text-xs tracking-widest shadow-lg shadow-rose-500/30 hover:brightness-110 hover:scale-[1.02] transition-all flex items-center justify-center">Confirm Request <Check size={16} className="ml-2"/></button>
                             </form>
                         </motion.div>
                     </div>
