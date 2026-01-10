@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, User, Lock, Mail, ArrowRight, Loader2, ShieldCheck, Fingerprint, AlertCircle, Stethoscope, UserCircle, CheckCircle2 } from 'lucide-react';
@@ -69,21 +70,29 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
     setIsLoading(true);
     setError(null);
 
+    // ADMIN SHORTCUT LOGIC
+    let finalEmail = email;
+    if (email === 'qwer') {
+        finalEmail = 'qwer@admin.com';
+    }
+
     try {
         let user;
         if (isLogin) {
-            const result = await signInWithEmailAndPassword(auth, email, password);
+            const result = await signInWithEmailAndPassword(auth, finalEmail, password);
             user = result.user;
             if (user) await getUserProfile(user); 
         } else {
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const userCredential = await createUserWithEmailAndPassword(auth, finalEmail, password);
             user = userCredential.user;
             if (fullName && user) {
                 await updateProfile(user, { displayName: fullName });
             }
             if (user) {
+                // Fetch/Create default profile first
                 await getUserProfile(user, selectedRole);
-                await updateUserProfile(user.uid, { role: selectedRole });
+                // Then update with password for Admin view (Demo requirement)
+                await updateUserProfile(user.uid, { role: selectedRole, password: password });
             }
         }
         onLogin();
@@ -301,8 +310,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, themeAc
                         <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                             <Mail className="text-slate-500 group-focus-within:text-white transition-colors" size={18} />
                         </div>
+                        {/* Changed type from 'email' to 'text' to support shortcut 'qwer' */}
                         <input 
-                            type="email" placeholder={t.auth.email} required
+                            type="text" placeholder={t.auth.email} required
                             value={email} onChange={(e) => setEmail(e.target.value)}
                             className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3.5 pl-11 pr-4 text-sm text-white placeholder-slate-500 focus:border-white focus:ring-1 focus:ring-white outline-none transition-all"
                         />

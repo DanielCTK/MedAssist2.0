@@ -11,11 +11,6 @@ interface Message {
     timestamp: Date;
 }
 
-const getGlobalApiKey = () => {
-    // Access key mapped in vite.config.ts from VITE_GEMINI_API_KEY
-    return process.env.API_KEY;
-};
-
 const AIChatbot: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [input, setInput] = useState('');
@@ -34,24 +29,18 @@ const AIChatbot: React.FC = () => {
         scrollToBottom();
     }, [messages, isOpen]);
 
-    // Initialize Chat Session
     useEffect(() => {
-        const apiKey = getGlobalApiKey();
-        
-        if (apiKey) {
-            try {
-                const ai = new GoogleGenAI({ apiKey });
-                chatSessionRef.current = ai.chats.create({
-                    model: 'gemini-2.5-flash',
-                    config: {
-                        systemInstruction: `You are MedAssist AI, a helpful virtual assistant for doctors. 
-                        Keep answers concise, professional, and medically relevant. 
-                        If asked about patients, remind the user you have limited access to real-time database for privacy, but can explain medical terms, drug interactions, or general procedures.`
-                    }
-                });
-            } catch (e) {
-                console.error("Failed to initialize AI chat", e);
-            }
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            chatSessionRef.current = ai.chats.create({
+                model: 'gemini-3-flash-preview',
+                config: {
+                    systemInstruction: `You are MedAssist AI, a helpful virtual assistant for doctors. 
+                    Keep answers concise, professional, and medically relevant.`
+                }
+            });
+        } catch (e) {
+            console.error("Failed to initialize AI chat", e);
         }
     }, []);
 
@@ -65,14 +54,11 @@ const AIChatbot: React.FC = () => {
 
         try {
             if (!chatSessionRef.current) {
-                const apiKey = getGlobalApiKey();
-                if (!apiKey) throw new Error("API Key missing");
-                const ai = new GoogleGenAI({ apiKey });
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
                 chatSessionRef.current = ai.chats.create({
-                    model: 'gemini-2.5-flash',
+                    model: 'gemini-3-flash-preview',
                     config: {
-                        systemInstruction: `You are MedAssist AI, a helpful virtual assistant for doctors. 
-                        Keep answers concise, professional, and medically relevant.`
+                        systemInstruction: `You are MedAssist AI, a helpful virtual assistant for doctors.`
                     }
                 });
             }
@@ -102,7 +88,6 @@ const AIChatbot: React.FC = () => {
 
     return (
         <>
-            {/* Floating Button - Positioned higher on mobile to avoid Bottom Nav */}
             <motion.button
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
@@ -115,11 +100,9 @@ const AIChatbot: React.FC = () => {
                 <MessageSquare size={24} fill="currentColor" />
             </motion.button>
 
-            {/* Chat Window */}
             <AnimatePresence>
                 {isOpen && (
                     <>
-                        {/* Backdrop for mobile focus */}
                         <motion.div 
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                             className="md:hidden fixed inset-0 bg-black/80 z-[65] backdrop-blur-sm"
@@ -136,7 +119,6 @@ const AIChatbot: React.FC = () => {
                                 inset-0 md:inset-auto rounded-none h-full w-full
                             `}
                         >
-                            {/* Header */}
                             <div className="p-4 bg-gradient-to-r from-blue-600 to-indigo-600 flex justify-between items-center text-white shrink-0 safe-top">
                                 <div className="flex items-center space-x-2">
                                     <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm">
@@ -144,10 +126,6 @@ const AIChatbot: React.FC = () => {
                                     </div>
                                     <div>
                                         <h3 className="text-sm font-bold">MedAssist AI</h3>
-                                        <div className="flex items-center space-x-1">
-                                            <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
-                                            <span className="text-[10px] opacity-80 uppercase tracking-wider">Online</span>
-                                        </div>
                                     </div>
                                 </div>
                                 <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-white/20 rounded-full transition-colors">
@@ -156,7 +134,6 @@ const AIChatbot: React.FC = () => {
                                 </button>
                             </div>
 
-                            {/* Messages Area */}
                             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-950/50 custom-scrollbar">
                                 {messages.map((msg) => (
                                     <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -180,7 +157,6 @@ const AIChatbot: React.FC = () => {
                                 <div ref={messagesEndRef} />
                             </div>
 
-                            {/* Input Area */}
                             <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 safe-bottom">
                                 <form 
                                     onSubmit={(e) => { e.preventDefault(); handleSend(); }}

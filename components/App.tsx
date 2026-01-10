@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope, CheckCircle2, MessageCircle, X, LayoutDashboard, Users, Eye, Package, Settings, LogOut, BookOpen } from 'lucide-react';
+import { Moon, Sun, Bell, Search, ChevronDown, Activity, Loader2, ArrowRight, User, Stethoscope, CheckCircle2, MessageCircle, X, LayoutDashboard, Users, Eye, Package, Settings, LogOut } from 'lucide-react';
 
 // Relative imports
 import Sidebar from './Sidebar';
@@ -12,10 +12,11 @@ import Inventory from './Inventory';
 import LandingPage from './LandingPage';
 import LearnMorePage from './LearnMorePage';
 import SettingsView from './SettingsView';
-import HumanChatWidget from './HumanChatWidget'; // This is now the Unified Chat
+import HumanChatWidget from './HumanChatWidget'; 
 import InsightsView from './InsightsView'; 
 import PatientDashboard from './PatientDashboard'; 
-import ReferenceLibrary from './ReferenceLibrary';
+// Import Admin Dashboard
+import AdminDashboard from './AdminDashboard'; 
 
 import { useLanguage } from '../contexts/LanguageContext';
 import { auth } from '../services/firebase';
@@ -28,16 +29,15 @@ import { subscribeToActiveChats } from '../services/chatService';
 
 const ASANOHA_PATTERN = `data:image/svg+xml,%3Csvg width='60' height='104' viewBox='0 0 60 104' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 52L60 0M30 52L60 104M30 52L0 104M30 52L0 0M30 0L0 52M30 0L0 52M30 104L0 52M30 0L60 52M30 104L60 52M0 52h60M30 0v104' stroke='%23888888' stroke-width='1' fill='none' opacity='0.07'/%3E%3C/svg%3E`;
 
-// OPTIMIZATION: Define animations outside component to prevent re-creation on render
 const pageVariants = {
-  initial: { opacity: 0, y: 5 }, // Reduced movement
+  initial: { opacity: 0, y: 5 },
   in: { opacity: 1, y: 0 },
-  out: { opacity: 0, y: -5 }     // Reduced movement
+  out: { opacity: 0, y: -5 }
 };
 
 const pageTransition = {
   type: "tween",
-  ease: "easeInOut", // Smoother than 'anticipate'
+  ease: "easeInOut",
   duration: 0.3
 };
 
@@ -61,19 +61,13 @@ const App: React.FC = () => {
   
   const { language, setLanguage, t } = useLanguage();
 
-  // --- PRESENCE MANAGEMENT ---
   useEffect(() => {
       if (currentUser) {
-          // Set Online on mount/login
           setUserOnline(currentUser.uid);
-
-          // Set Offline on window close/tab close
           const handleBeforeUnload = () => {
               setUserOffline(currentUser.uid);
           };
           window.addEventListener('beforeunload', handleBeforeUnload);
-
-          // Set Offline on component unmount (logout logic handles this separately, but safe to keep)
           return () => {
               setUserOffline(currentUser.uid);
               window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -87,12 +81,15 @@ const App: React.FC = () => {
       setCurrentUser(user);
       if (user) {
          setIsProfileLoading(true);
+         // Listen to user profile changes in real-time to catch role updates immediately
          profileUnsubscribe = subscribeToUserProfile(user.uid, async (profile) => {
              if (profile) {
                  setUserProfile(profile);
                  setIsProfileLoading(false);
              } else {
-                 setUserProfile(null);
+                 // Fallback if real-time failed but doc exists
+                 const p = await getUserProfile(user);
+                 setUserProfile(p);
                  setIsProfileLoading(false);
              }
          });
@@ -127,7 +124,7 @@ const App: React.FC = () => {
       if (!searchQuery.trim()) { setSearchResults([]); return; }
       const q = searchQuery.toLowerCase();
       const results: typeof searchResults = [];
-      ['dashboard', 'patients', 'diagnosis', 'history', 'settings', 'inventory', 'references'].forEach(page => {
+      ['dashboard', 'patients', 'diagnosis', 'history', 'settings', 'inventory'].forEach(page => {
           if (page.includes(q)) {
               results.push({
                   type: 'Page', id: page, title: `Go to ${page.charAt(0).toUpperCase() + page.slice(1)}`,
@@ -159,7 +156,7 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try {
         setIsLoadingAuth(true);
-        if (currentUser) await setUserOffline(currentUser.uid); // Explicit offline before auth signout
+        if (currentUser) await setUserOffline(currentUser.uid); 
         await signOut(auth);
         setUserProfile(null);
         setCurrentUser(null);
@@ -211,8 +208,8 @@ const App: React.FC = () => {
   if (isLoadingAuth || (currentUser && isProfileLoading)) {
     return (
         <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white relative overflow-hidden">
-            <Loader2 size={48} className="animate-spin text-blue-500 mb-6" />
-            <p className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 animate-pulse">Initializing System</p>
+            <Loader2 size={48} className="animate-spin text-amber-500 mb-6" />
+            <p className="text-xs uppercase tracking-[0.2em] font-black text-amber-500/50 animate-pulse">Initializing Terminal</p>
         </div>
     );
   }
@@ -237,22 +234,35 @@ const App: React.FC = () => {
       return (
           <div className="h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white p-6 relative overflow-hidden">
               <div className="relative z-10 w-full max-w-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl">
-                  <h1 className="text-3xl font-bold mb-2 text-center">Welcome to MedAssist</h1>
-                  <p className="text-slate-400 text-center mb-10">Select your role.</p>
+                  <h1 className="text-3xl font-bold mb-2 text-center italic tracking-tighter">MED<span className="text-blue-500">ASSIST</span></h1>
+                  <p className="text-slate-400 text-center mb-10">System detected unprovisioned account. Select clearance level.</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <button onClick={() => handleRoleSelection('doctor')} className="p-6 rounded-2xl bg-slate-900/50 border border-slate-700 hover:border-indigo-500">I am a Doctor</button>
-                      <button onClick={() => handleRoleSelection('patient')} className="p-6 rounded-2xl bg-slate-900/50 border border-slate-700 hover:border-blue-500">I am a Patient</button>
+                      <button onClick={() => handleRoleSelection('doctor')} className="p-8 rounded-2xl bg-slate-900/50 border border-slate-700 hover:border-blue-500 transition-all group flex flex-col items-center gap-4">
+                          <Stethoscope size={32} className="text-slate-500 group-hover:text-blue-400" />
+                          <span className="font-bold text-xs uppercase tracking-widest">Medical Specialist</span>
+                      </button>
+                      <button onClick={() => handleRoleSelection('patient')} className="p-8 rounded-2xl bg-slate-900/50 border border-slate-700 hover:border-rose-500 transition-all group flex flex-col items-center gap-4">
+                          <User size={32} className="text-slate-500 group-hover:text-rose-400" />
+                          <span className="font-bold text-xs uppercase tracking-widest">Patient Access</span>
+                      </button>
                   </div>
-                  <button onClick={handleLogout} className="mt-10 text-slate-400 text-xs hover:text-white block mx-auto">Sign Out</button>
+                  <button onClick={handleLogout} className="mt-10 text-slate-500 text-[10px] font-black uppercase tracking-widest hover:text-white block mx-auto underline">Abort Login</button>
               </div>
           </div>
       );
+  }
+
+  // --- ROLE BASED ROUTING ---
+  // If user is Admin, render the special AdminDashboard component completely bypassing standard layout
+  if (currentUser && userProfile?.role === 'admin') {
+      return <AdminDashboard isDarkMode={isDarkMode} currentUser={currentUser} userProfile={userProfile} onLogout={handleLogout} toggleTheme={() => setIsDarkMode(!isDarkMode)} />;
   }
 
   if (currentUser && userProfile?.role === 'patient') {
       return <PatientDashboard isDarkMode={isDarkMode} currentUser={currentUser} userProfile={userProfile} onLogout={handleLogout} toggleTheme={() => setIsDarkMode(!isDarkMode)} />;
   }
 
+  // Standard Doctor Layout
   return (
     <div className={`h-screen w-full font-sans overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <AnimatePresence mode="wait">
@@ -296,7 +306,6 @@ const App: React.FC = () => {
                         {currentView === 'patients' && <PatientList isDarkMode={isDarkMode} />}
                         {currentView === 'settings' && <SettingsView userProfile={userProfile} isDarkMode={isDarkMode} onProfileUpdate={setUserProfile} onClose={() => setCurrentView('dashboard')} />}
                         {currentView === 'history' && <InsightsView isDarkMode={isDarkMode} currentUser={currentUser} />}
-                        {currentView === 'references' && <ReferenceLibrary isDarkMode={isDarkMode} />}
                         {currentView === 'inventory' && <Inventory isDarkMode={isDarkMode} isFullPageView={true} />}
                       </motion.div>
                    </AnimatePresence>

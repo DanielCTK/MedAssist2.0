@@ -30,7 +30,8 @@ export const generateClinicalReport = async (
   language: 'en' | 'vi' = 'en'
 ): Promise<ReportData> => {
   try {
-    const ai = getClient();
+    // Corrected to use a new GoogleGenAI instance right before the API call as per guidelines
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const gradeText = getGradeName(analysis.grade);
     
@@ -50,7 +51,8 @@ export const generateClinicalReport = async (
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      // Updated model to 'gemini-3-flash-preview' which is recommended for basic text tasks
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -66,6 +68,7 @@ export const generateClinicalReport = async (
       }
     });
 
+    // Access .text property directly from GenerateContentResponse
     const text = response.text;
     if (!text) throw new Error("No response from Gemini");
 

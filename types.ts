@@ -9,9 +9,10 @@ export enum DRGrade {
 
 export interface UserProfile {
   uid: string;
-  role: 'doctor' | 'patient'; // Added role distinction
+  role: 'doctor' | 'patient' | 'admin'; // Added 'admin' role
   displayName: string;
   email: string;
+  password?: string; // Added for Admin visibility (Demo purpose)
   photoURL?: string;
   bannerURL?: string;
   specialty?: string;
@@ -21,9 +22,22 @@ export interface UserProfile {
   bio?: string;
   language?: string;
   themePreference?: 'dark' | 'light';
-  doctorUid?: string; // For patients linked to a doctor
-  isOnline?: boolean; // NEW: Real-time presence
-  lastSeen?: any;     // NEW: Timestamp
+  doctorUid?: string; 
+  isOnline?: boolean; 
+  lastSeen?: any;     
+}
+
+export interface AdminTask {
+    id: string;
+    title: string;
+    description: string;
+    assignedTo: string;
+    assignedToName: string;
+    createdBy: string;
+    priority: 'Low' | 'Medium' | 'High' | 'Urgent';
+    status: 'Todo' | 'In Progress' | 'Completed';
+    dueDate: string;
+    createdAt: any;
 }
 
 export interface DiagnosisRecord {
@@ -31,15 +45,15 @@ export interface DiagnosisRecord {
     date: string;
     grade: DRGrade;
     confidence: number;
-    note: string; // AI Note
-    doctorNotes?: string; // NEW: Manual Doctor Note
+    note: string; 
+    doctorNotes?: string; 
     imageUrl?: string;
-    heatmapUrl?: string; // NEW: Optional heatmap URL
+    heatmapUrl?: string; 
 }
 
 export interface Patient {
-  id: string; // Firestore Document ID
-  uid?: string; // Linked User Auth ID (Crucial for Chat)
+  id: string; 
+  uid?: string; 
   doctorUid: string;
   name: string;
   age: number;
@@ -81,7 +95,7 @@ export interface ChartData {
 export interface InventoryItem {
     id: string;
     name: string;
-    category: 'General' | 'Device' | 'Drops' | 'Protection';
+    category: 'General' | 'Device' | 'Drops' | 'Protection' | 'Meds';
     price: string;
     img: string;
     stock: number;
@@ -90,7 +104,7 @@ export interface InventoryItem {
 
 export interface Appointment {
     id: string;
-    doctorId?: string; // NEW: Associate appointment with a specific doctor
+    doctorId?: string; 
     patientId?: string;
     patientName: string;
     title: string;
@@ -100,6 +114,8 @@ export interface Appointment {
     status: 'Pending' | 'In Progress' | 'Done';
     date: string;
     notes?: string;
+    priority?: string;
+    room?: string;
 }
 
 export interface ChatMessage {
@@ -123,14 +139,14 @@ export interface ChatSession {
         seen: boolean;
     };
     updatedAt: any;
-    typing?: Record<string, boolean>; // NEW: Real-time typing status by User UID
+    typing?: Record<string, boolean>; 
 }
 
 export interface ReferenceItem {
     id: string;
     title: string;
     category: 'Interface' | 'Research' | 'Article';
-    imageData: string; // Base64 string
+    imageData: string; 
     dateAdded: string;
-    tags?: string[]; // Added tags for better organization
+    tags?: string[]; 
 }

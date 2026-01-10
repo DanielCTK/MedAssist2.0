@@ -3,16 +3,19 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserProfile, Appointment, DiagnosisRecord, ChatMessage } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Activity, Calendar, FileText, MessageCircle, LogOut, Settings, Sun, Moon, Home, Clock, ChevronRight, Bell, User as UserIcon, Send, CheckCircle, AlertCircle, TrendingUp, Plus, X, Globe, MapPin, Camera, Loader2, Stethoscope, AlertTriangle, RefreshCw, Check, ArrowLeft, Eye, Brain, Sparkles, Bot, Image as ImageIcon } from 'lucide-react';
+import { 
+    Activity, Calendar, FileText, MessageCircle, LogOut, Sun, Moon, Home, 
+    ChevronRight, Bell, User as UserIcon, Send, X, Loader2, Stethoscope, 
+    AlertTriangle, RefreshCw, Check, ArrowLeft, Eye, Sparkles, Bot, 
+    Image as ImageIcon, Plus, Search, Settings, Shield, HelpCircle, Globe, ChevronDown
+} from 'lucide-react';
 import { User } from 'firebase/auth';
-import SettingsView from './SettingsView';
-import { subscribeToPatientAppointments, addAppointment, deleteAppointment } from '../services/scheduleService';
+import { subscribeToPatientAppointments, addAppointment } from '../services/scheduleService';
 import { subscribeToMessages, sendMessage, getChatId, setTypingStatus, subscribeToChatMetadata } from '../services/chatService';
 import { checkAndAutoLinkPatient } from '../services/patientService'; 
-import { subscribeToUserProfile, uploadUserImage, updateUserProfile } from '../services/userService'; 
-import { collection, query, where, getDocs, limit, onSnapshot, or } from 'firebase/firestore';
+import { updateUserProfile, uploadUserImage } from '../services/userService'; 
+import { collection, query, where, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { GoogleGenAI } from "@google/genai";
 
 interface PatientDashboardProps {
@@ -25,114 +28,108 @@ interface PatientDashboardProps {
 
 type TabID = 'home' | 'records' | 'schedule' | 'chat' | 'profile';
 
-const APPOINTMENT_TYPES = [
-    "General Checkup", "Eye Pain", "Blurred Vision", "Redness", "Prescription", "Surgery Follow-up"
-];
-
+const APPOINTMENT_TYPES = ["Khám tổng quát", "Đau mắt", "Nhìn mờ", "Đỏ mắt", "Lấy đơn thuốc", "Tái khám sau mổ"];
 const AVAILABLE_HOURS = [8, 9, 10, 11, 13, 14, 15, 16];
 
-// --- HELPER TO GET API KEY SAFELY ---
-const getGlobalApiKey = () => {
-    return process.env.API_KEY;
-};
-
-// --- TYPING ANIMATION COMPONENT ---
-const TypingIndicator = ({ isDarkMode }: { isDarkMode: boolean }) => (
-    <div className={`flex items-center space-x-1 p-3 rounded-2xl rounded-bl-sm w-12 h-8 mb-2 ${isDarkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-100 shadow-sm"}`}>
-        {[0, 1, 2].map((i) => (
-            <motion.div
-                key={i}
-                className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? "bg-slate-400" : "bg-slate-500"}`}
-                animate={{ y: [0, -4, 0] }}
-                transition={{
-                    duration: 0.6,
-                    repeat: Infinity,
-                    delay: i * 0.2,
-                    ease: "easeInOut"
-                }}
-            />
-        ))}
-    </div>
-);
+// --- UI COMPONENTS ---
 
 const TabButton = ({ id, icon: Icon, label, currentTab, setCurrentTab, isDarkMode }: { id: TabID, icon: any, label: string, currentTab: TabID, setCurrentTab: (id: TabID) => void, isDarkMode: boolean }) => (
     <button 
         onClick={() => setCurrentTab(id)}
-        className={`flex flex-col items-center justify-center w-full py-3 transition-all duration-300 ${currentTab === id ? (isDarkMode ? 'text-pink-500' : 'text-rose-500') : 'text-slate-400 hover:text-slate-500'}`}
+        className={`flex flex-col items-center justify-center w-full py-2 transition-all duration-300 relative group`}
     >
-        <div className={`p-1.5 rounded-xl mb-1 transition-all ${currentTab === id ? (isDarkMode ? 'bg-pink-500/20 scale-110' : 'bg-rose-100 scale-110') : ''}`}>
+        <div className={`p-2 rounded-2xl mb-1 transition-all duration-300 ${currentTab === id ? 'bg-blue-600 text-white -translate-y-2 shadow-lg shadow-blue-500/30' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
             <Icon size={20} strokeWidth={currentTab === id ? 2.5 : 2} />
         </div>
-        <span className="text-[9px] font-bold uppercase tracking-wider">{label}</span>
+        <span className={`text-[10px] font-bold transition-opacity duration-300 ${currentTab === id ? 'opacity-100 text-blue-600 dark:text-blue-400' : 'opacity-0 h-0'}`}>{label}</span>
     </button>
 );
 
+const FeatureCard = ({ icon: Icon, title, subtitle, color, onClick }: any) => (
+    <motion.div 
+        whileTap={{ scale: 0.95 }}
+        onClick={onClick}
+        className={`p-5 rounded-[2rem] ${color} text-white shadow-lg cursor-pointer relative overflow-hidden h-40 flex flex-col justify-between`}
+    >
+        <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/20 rounded-full blur-2xl"></div>
+        <div className="p-3 bg-white/20 backdrop-blur-md w-fit rounded-full">
+            <Icon size={24} />
+        </div>
+        <div>
+            <h3 className="font-bold text-lg leading-tight">{title}</h3>
+            <p className="text-xs opacity-80 mt-1">{subtitle}</p>
+        </div>
+    </motion.div>
+);
+
+const AppointmentCard: React.FC<{ appt: Appointment, isDarkMode: boolean }> = ({ appt, isDarkMode }) => (
+    <div className={`p-5 rounded-[1.5rem] mb-4 flex items-center gap-4 border transition-all ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}>
+        <div className={`flex flex-col items-center justify-center w-16 h-16 rounded-2xl ${isDarkMode ? 'bg-slate-700 text-slate-300' : 'bg-orange-50 text-orange-500'}`}>
+            <span className="text-xs font-bold uppercase">{new Date(appt.date).toLocaleDateString('vi-VN', {weekday: 'short'})}</span>
+            <span className="text-xl font-black">{new Date(appt.date).getDate()}</span>
+        </div>
+        <div className="flex-1">
+            <h4 className="font-bold text-sm mb-1 line-clamp-1">{appt.title}</h4>
+            <div className="flex items-center text-xs opacity-60 gap-2">
+                <span className="flex items-center"><Calendar size={12} className="mr-1"/> {new Date(appt.date).toLocaleDateString('vi-VN')}</span>
+                <span>•</span>
+                <span className="flex items-center"><Activity size={12} className="mr-1"/> {appt.startTime}:00</span>
+            </div>
+        </div>
+        <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${
+            appt.status === 'Done' ? 'bg-green-100 text-green-600' : 
+            appt.status === 'In Progress' ? 'bg-blue-100 text-blue-600' : 'bg-yellow-100 text-yellow-600'
+        }`}>
+            {appt.status === 'Pending' ? 'Chờ' : appt.status === 'Done' ? 'Xong' : 'Khám'}
+        </div>
+    </div>
+);
+
+const SettingItem = ({ icon: Icon, label, value, isDarkMode, onClick }: any) => (
+    <div onClick={onClick} className={`flex items-center justify-between p-4 rounded-2xl mb-2 cursor-pointer transition-colors ${isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
+        <div className="flex items-center gap-4">
+            <div className={`p-2.5 rounded-full ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                <Icon size={18} />
+            </div>
+            <span className="font-bold text-sm">{label}</span>
+        </div>
+        <div className="flex items-center gap-2">
+            {value && <span className="text-xs opacity-50 font-medium">{value}</span>}
+            <ChevronRight size={16} className="opacity-30" />
+        </div>
+    </div>
+);
+
 const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, currentUser, userProfile, onLogout, toggleTheme }) => {
-    const { t, language, setLanguage } = useLanguage();
+    const { t, language } = useLanguage();
     const [currentTab, setCurrentTab] = useState<TabID>('home');
     const [myAppointments, setMyAppointments] = useState<Appointment[]>([]);
     const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisRecord[]>([]);
     const [assignedDoctorId, setAssignedDoctorId] = useState<string | null>(null);
-    const [assignedDoctorProfile, setAssignedDoctorProfile] = useState<UserProfile | null>(null); 
-    const [loading, setLoading] = useState(true);
-    const [isLoggingOut, setIsLoggingOut] = useState(false);
-    const [isSyncing, setIsSyncing] = useState(false);
-
-    // Banner Upload State
-    const [isUploadingBanner, setIsUploadingBanner] = useState(false);
-    const bannerInputRef = useRef<HTMLInputElement>(null);
-
-    // Record Detail View State
-    const [selectedRecord, setSelectedRecord] = useState<DiagnosisRecord | null>(null);
-
-    // Chat State (Doctor)
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [inputMsg, setInputMsg] = useState("");
-    const [isDoctorTyping, setIsDoctorTyping] = useState(false);
-    const typingTimeoutRef = useRef<any>(null);
-    const doctorTypingTimeoutRef = useRef<any>(null); // For Failsafe
-    
-    // Chat State (AI)
-    const [chatMode, setChatMode] = useState<'doctor' | 'ai'>('doctor');
-    const [aiMessages, setAiMessages] = useState<{id: string, text: string, sender: 'user'|'ai', timestamp: Date}[]>([
-        { id: 'welcome', text: language === 'vi' ? "Xin chào! Tôi là Trợ lý AI. Bạn cần tư vấn gì về sức khỏe mắt hôm nay?" : "Hello! I am your AI Assistant. How can I help with your eye health today?", sender: 'ai', timestamp: new Date() }
-    ]);
-    const [aiInputMsg, setAiInputMsg] = useState("");
-    const [isAiThinking, setIsAiThinking] = useState(false);
-
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    // Add Appointment Modal
+    const [scheduleFilter, setScheduleFilter] = useState<'ongoing' | 'completed'>('ongoing');
     const [isBookModalOpen, setIsBookModalOpen] = useState(false);
+    
+    // Booking State
     const [newBookDate, setNewBookDate] = useState("");
     const [newBookReason, setNewBookReason] = useState(""); 
     const [selectedReasonType, setSelectedReasonType] = useState(APPOINTMENT_TYPES[0]);
     const [selectedTimeSlot, setSelectedTimeSlot] = useState(9); 
-    
-    // New Date Input Helper
-    const dateInputRef = useRef<HTMLInputElement>(null);
-    const openDatePicker = () => {
-        try {
-            dateInputRef.current?.showPicker(); 
-        } catch {
-            dateInputRef.current?.focus(); 
-        }
-    };
 
-    // --- CHART DATA PROCESSING ---
-    const chartData = useMemo(() => {
-        if (!diagnosisHistory || diagnosisHistory.length === 0) return [];
-        const sorted = [...diagnosisHistory].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        return sorted.map(rec => ({
-            date: new Date(rec.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            fullDate: new Date(rec.date).toLocaleDateString(),
-            grade: rec.grade,
-            confidence: (rec.confidence * 100).toFixed(0),
-            note: rec.grade === 0 ? "Healthy" : `Stage ${rec.grade}`
-        }));
-    }, [diagnosisHistory]);
+    // Chat State
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [inputMsg, setInputMsg] = useState("");
+    const [chatMode, setChatMode] = useState<'doctor' | 'ai'>('doctor');
+    const [aiMessages, setAiMessages] = useState<{id: string, text: string, sender: 'user'|'ai', timestamp: Date}[]>([
+        { id: 'welcome', text: "Xin chào! Tôi là Trợ lý AI. Bạn cần tư vấn gì về mắt hôm nay?", sender: 'ai', timestamp: new Date() }
+    ]);
+    const [isAiThinking, setIsAiThinking] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // --- AUTO-LINK EFFECT ---
+    // Profile State
+    const [isSyncing, setIsSyncing] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // --- DATA LOADING ---
     useEffect(() => {
         const attemptAutoLink = async () => {
             if (currentUser && userProfile && !userProfile.doctorUid) {
@@ -145,809 +142,411 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({ isDarkMode, current
         attemptAutoLink();
     }, [currentUser, userProfile]);
 
-    // --- FETCH DOCTOR STATUS ---
-    useEffect(() => {
-        if (assignedDoctorId) {
-            const unsub = subscribeToUserProfile(assignedDoctorId, (docProfile) => {
-                setAssignedDoctorProfile(docProfile);
-            });
-            return () => unsub();
-        }
-    }, [assignedDoctorId]);
-
-    // --- MANUAL SYNC ---
-    const handleManualSync = async () => {
-        if (!currentUser || !userProfile) return;
-        setIsSyncing(true);
-        try {
-            const doctorId = await checkAndAutoLinkPatient(currentUser, userProfile);
-            if (doctorId) setAssignedDoctorId(doctorId);
-            else if (userProfile.doctorUid) setAssignedDoctorId(userProfile.doctorUid);
-            await new Promise(resolve => setTimeout(resolve, 800));
-            alert(t.patientDashboard.sync_success || "Data synchronized with Doctor.");
-        } catch (error) {
-            console.error("Sync failed", error);
-            alert("Sync failed. Please try again.");
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    // --- BANNER UPLOAD HANDLER ---
-    const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0] && currentUser) {
-            setIsUploadingBanner(true);
-            try {
-                // Upload to Cloudinary/Storage
-                const url = await uploadUserImage(currentUser.uid, e.target.files[0], 'banner');
-                // Update Firestore
-                await updateUserProfile(currentUser.uid, { bannerURL: url });
-            } catch (error) {
-                console.error("Banner upload failed:", error);
-                alert("Failed to upload image. Please try again.");
-            } finally {
-                setIsUploadingBanner(false);
-            }
-        }
-    };
-
-    // --- DATA FETCHING ---
     useEffect(() => {
         if (!currentUser) return;
-        setLoading(true);
         const unsubAppt = subscribeToPatientAppointments(currentUser.uid, (data) => setMyAppointments(data), (err) => console.error(err));
-        
-        let unsubPatientData: () => void = () => {};
-        const fetchPatientData = async () => {
-            let q;
-            if (currentUser.uid) q = query(collection(db, "patients"), where("uid", "==", currentUser.uid), limit(1));
-            else if (currentUser.email) q = query(collection(db, "patients"), where("email", "==", currentUser.email), limit(1));
-            else return;
-            
-            unsubPatientData = onSnapshot(q, (snapshot) => {
-                if (!snapshot.empty) {
-                    const patientDoc = snapshot.docs[0].data();
-                    if (patientDoc.diagnosisHistory) setDiagnosisHistory(patientDoc.diagnosisHistory.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-                    if (!userProfile?.doctorUid && patientDoc.doctorUid) setAssignedDoctorId(patientDoc.doctorUid);
-                }
-            }, (err) => console.error(err));
-        };
-        fetchPatientData();
+        const q = query(collection(db, "patients"), where("uid", "==", currentUser.uid), limit(1));
+        const unsubPatientData = onSnapshot(q, (snapshot) => {
+            if (!snapshot.empty) {
+                const patientDoc = snapshot.docs[0].data();
+                if (patientDoc.diagnosisHistory) setDiagnosisHistory(patientDoc.diagnosisHistory.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+            }
+        });
         return () => { unsubAppt(); unsubPatientData(); };
-    }, [currentUser, userProfile]);
+    }, [currentUser]);
 
-    // --- CHAT SUBSCRIPTION (DOCTOR) ---
+    // --- CHAT LOGIC ---
     useEffect(() => {
         if (currentUser && currentTab === 'chat' && assignedDoctorId && chatMode === 'doctor') {
             const chatId = getChatId(currentUser.uid, assignedDoctorId);
-            
-            const cleanupTyping = () => {
-                if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-                setTypingStatus(chatId, currentUser.uid, false);
-            };
-
             const unsubChat = subscribeToMessages(chatId, (msgs) => setMessages(msgs));
-            
-            const unsubMeta = subscribeToChatMetadata(chatId, (session) => {
-                if (session && session.typing && assignedDoctorId) {
-                    if (assignedDoctorId !== currentUser.uid) {
-                        setIsDoctorTyping(!!session.typing[assignedDoctorId]);
-                    }
-                } else {
-                    setIsDoctorTyping(false);
-                }
-            });
-
-            return () => { 
-                unsubChat(); 
-                unsubMeta(); 
-                setIsDoctorTyping(false);
-                cleanupTyping();
-            };
+            return () => { unsubChat(); };
         }
     }, [currentUser, currentTab, assignedDoctorId, chatMode]);
 
-    useEffect(() => {
-        if (isDoctorTyping) {
-            if (doctorTypingTimeoutRef.current) clearTimeout(doctorTypingTimeoutRef.current);
-            doctorTypingTimeoutRef.current = setTimeout(() => {
-                setIsDoctorTyping(false);
-            }, 8000); 
-        }
-    }, [isDoctorTyping]);
+    useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, aiMessages, currentTab, chatMode]);
 
-    useEffect(() => {
-        setIsDoctorTyping(false);
-    }, [messages.length]);
-
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, currentTab, chatMode, aiMessages, isDoctorTyping]);
-
-    // --- INPUT CHANGE (TYPING LOGIC) ---
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setInputMsg(e.target.value);
-        if (!currentUser || !assignedDoctorId) return;
-
-        const chatId = getChatId(currentUser.uid, assignedDoctorId);
-        setTypingStatus(chatId, currentUser.uid, true);
-
-        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        typingTimeoutRef.current = setTimeout(() => {
-            setTypingStatus(chatId, currentUser.uid, false);
-        }, 2000);
-    };
-
-    // --- SEND HANDLERS ---
     const handleSendMessage = async () => {
         if (!inputMsg.trim() || !currentUser || !assignedDoctorId) return;
         const text = inputMsg;
         setInputMsg(""); 
-        
-        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        
-        const tempMsg: ChatMessage = { id: `temp-${Date.now()}`, text, senderId: currentUser.uid, createdAt: { toMillis: () => Date.now() } };
-        setMessages(prev => [...prev, tempMsg]);
-
         const chatId = getChatId(currentUser.uid, assignedDoctorId);
         await sendMessage(chatId, currentUser.uid, text);
     };
 
     const handleSendAI = async () => {
-        if (!aiInputMsg.trim()) return;
-        const text = aiInputMsg;
-        setAiInputMsg("");
-        
+        if (!inputMsg.trim()) return;
+        const text = inputMsg;
+        setInputMsg("");
         setAiMessages(prev => [...prev, { id: Date.now().toString(), text, sender: 'user', timestamp: new Date() }]);
         setIsAiThinking(true);
-
         try {
-            const apiKey = getGlobalApiKey();
-            if (!apiKey) throw new Error("API_KEY_MISSING");
-            
-            const ai = new GoogleGenAI({ apiKey });
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const response = await ai.models.generateContent({ 
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: text,
-                config: {
-                    systemInstruction: language === 'vi' 
-                        ? "Bạn là trợ lý y tế ảo thân thiện. Hãy trả lời ngắn gọn, dễ hiểu cho bệnh nhân về các vấn đề mắt và sức khỏe. Nếu nguy cấp, khuyên đi khám ngay." 
-                        : "You are a friendly medical AI assistant. Provide concise, easy-to-understand answers about eye health. If urgent, advise seeing a doctor immediately."
-                }
+                config: { systemInstruction: "Bạn là trợ lý y tế ảo thân thiện. Trả lời ngắn gọn bằng tiếng Việt về sức khỏe mắt." }
             });
-            const responseText = response.text || (language === 'vi' ? "Không có phản hồi." : "No response.");
-            setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: responseText, sender: 'ai', timestamp: new Date() }]);
-        } catch (error: any) {
-            console.error("AI Error:", error);
-            let errorMessage = language === 'vi' ? "Xin lỗi, đã xảy ra lỗi kết nối." : "Sorry, a connection error occurred.";
-            if (error.message === "API_KEY_MISSING") errorMessage = "Missing API Key";
-            setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: errorMessage, sender: 'ai', timestamp: new Date() }]);
-        } finally {
-            setIsAiThinking(false);
-        }
+            setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: response.text || "...", sender: 'ai', timestamp: new Date() }]);
+        } finally { setIsAiThinking(false); }
     };
 
-    // --- BOOKING LOGIC ---
-    const handleBookAppointment = async (e: React.FormEvent) => {
+    const handleBooking = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newBookDate || !currentUser) return;
-        if (!assignedDoctorId) {
-            alert(language === 'vi' ? "Vui lòng liên kết với bác sĩ trước khi đặt lịch." : "Please link with a doctor before booking.");
-            setCurrentTab('profile'); 
-            return;
-        }
-        const finalTitle = newBookReason ? `${selectedReasonType}: ${newBookReason}` : selectedReasonType;
+        if (!newBookDate || !currentUser || !assignedDoctorId) return;
         try {
             await addAppointment({
                 doctorId: assignedDoctorId, 
                 patientId: currentUser.uid,
-                patientName: userProfile?.displayName || currentUser.displayName || "Patient",
-                title: finalTitle,
+                patientName: userProfile?.displayName || "Bệnh nhân",
+                title: `${selectedReasonType}: ${newBookReason}`,
                 type: 'Consult',
                 date: newBookDate,
                 startTime: selectedTimeSlot, 
                 duration: 1,
-                status: 'Pending',
-                notes: newBookReason
+                status: 'Pending'
             });
-            alert(language === 'vi' ? "Yêu cầu đã gửi thành công!" : "Request sent successfully!");
             setIsBookModalOpen(false);
             setNewBookReason("");
-            setNewBookDate("");
-        } catch (e) {
-            alert("Failed to book.");
+            alert("Đã gửi yêu cầu đặt lịch thành công!");
+        } catch (e) { alert("Lỗi đặt lịch"); }
+    };
+
+    const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0] && currentUser) {
+            try {
+                const url = await uploadUserImage(currentUser.uid, e.target.files[0], 'avatar');
+                await updateUserProfile(currentUser.uid, { photoURL: url });
+            } catch (e) { console.error(e); }
         }
     };
 
-    const handleDismissDeclined = async (id: string) => {
-        try {
-            await deleteAppointment(id);
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    const handleLogoutWrapper = async (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (isLoggingOut) return;
-
-        setIsLoggingOut(true);
-        try {
-            await onLogout();
-            setIsLoggingOut(false);
-        } catch (e) {
-            console.error(e);
-            setIsLoggingOut(false);
-        }
-    };
-
-    const latestScan = diagnosisHistory.length > 0 ? diagnosisHistory[0] : null;
-    const heroBackground = userProfile?.bannerURL || "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?q=80&w=2070&auto=format&fit=crop"; // New pinkish default
-    const todayStr = new Date().toISOString().split('T')[0];
-    
-    // Real Doctor Online Status Logic
-    const isDoctorOnline = assignedDoctorProfile?.isOnline ?? false;
-    
-    const declinedAppointments = myAppointments.filter(a => a.status === 'Declined');
-    const upcomingAppointments = myAppointments.filter(a => a.status !== 'Declined' && a.status !== 'Done');
-
-    // Styles
-    const bubbleUser = "bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-md rounded-br-sm";
-    const bubbleOther = isDarkMode ? "bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-sm" : "bg-white text-slate-800 border border-slate-100 shadow-sm rounded-bl-sm";
+    // --- STYLES ---
+    const bgMain = isDarkMode ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-900";
+    const cardBg = isDarkMode ? "bg-slate-900 border border-slate-800" : "bg-white border border-slate-100 shadow-sm";
 
     return (
-        <div className={`h-screen w-full flex flex-col ${isDarkMode ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-900'} font-sans`}>
+        <div className={`h-screen w-full flex flex-col ${bgMain} font-sans overflow-hidden`}>
             
-            {/* --- HEADER --- */}
-            <header className={`px-6 py-5 flex justify-between items-center z-10 ${isDarkMode ? 'bg-black' : 'bg-white'} border-b ${isDarkMode ? 'border-slate-900' : 'border-slate-100'}`}>
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-white shadow-md cursor-pointer" onClick={() => setCurrentTab('profile')}>
-                        <img src={userProfile?.photoURL || "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop"} className="w-full h-full object-cover" alt="Profile"/>
+            {/* --- TOP HEADER (Dynamic) --- */}
+            <header className={`px-6 py-4 flex justify-between items-center z-10 shrink-0 ${currentTab === 'home' ? 'bg-transparent' : (isDarkMode ? 'bg-slate-900 border-b border-slate-800' : 'bg-white border-b border-slate-100')}`}>
+                {currentTab === 'home' ? (
+                    <div className="flex flex-col">
+                        <p className="text-xs font-bold opacity-60 uppercase tracking-widest mb-1">Xin chào,</p>
+                        <h1 className="text-xl font-black">{userProfile?.displayName?.split(' ').pop()}! 👋</h1>
                     </div>
-                    <div>
-                        <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>{t.patientDashboard.welcome}</p>
-                        <h1 className="text-sm font-black tracking-tight">{userProfile?.displayName || 'Patient'}</h1>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button onClick={handleManualSync} disabled={isSyncing} className={`p-2 rounded-full flex items-center justify-center transition-all ${isDarkMode ? 'bg-slate-900 text-pink-400 hover:bg-slate-800' : 'bg-slate-100 text-rose-600 hover:bg-slate-200'}`}>
-                        <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
-                    </button>
-                    <button onClick={() => setLanguage(language === 'en' ? 'vi' : 'en')} className={`p-2 rounded-full flex items-center justify-center font-black text-[10px] w-9 h-9 border transition-all ${isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
-                        {language.toUpperCase()}
-                    </button>
-                    <button onClick={toggleTheme} className={`p-2 rounded-full ${isDarkMode ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600'}`}>
-                        {isDarkMode ? <Sun size={18}/> : <Moon size={18}/>}
-                    </button>
-                    <button className={`relative p-2 rounded-full ${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
-                        <Bell size={18} />
-                        {(myAppointments.some(a => a.status === 'Done') || declinedAppointments.length > 0) && <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full border border-white animate-pulse"></span>}
-                    </button>
+                ) : (
+                    <h1 className="text-lg font-black uppercase tracking-wide">
+                        {currentTab === 'schedule' && 'Lịch Của Tôi'}
+                        {currentTab === 'records' && 'Hồ Sơ Y Tế'}
+                        {currentTab === 'chat' && 'Tư Vấn Trực Tuyến'}
+                        {currentTab === 'profile' && 'Cài Đặt'}
+                    </h1>
+                )}
+                
+                <div 
+                    onClick={() => setCurrentTab('profile')}
+                    className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-lg cursor-pointer"
+                >
+                    <img src={userProfile?.photoURL || "https://ui-avatars.com/api/?name=User&background=random"} className="w-full h-full object-cover"/>
                 </div>
             </header>
 
-            {/* --- MAIN CONTENT AREA --- */}
-            <main className="flex-1 overflow-y-auto custom-scrollbar p-0 relative">
+            {/* --- MAIN CONTENT SCROLLABLE --- */}
+            <main className="flex-1 overflow-y-auto custom-scrollbar p-6 pb-24">
                 <AnimatePresence mode="wait">
                     
-                    {/* VIEW: HOME - PINK JAPAN TRIP STYLE */}
+                    {/* 1. HOME TAB */}
                     {currentTab === 'home' && (
-                        <motion.div 
-                            key="home" 
-                            initial={{ opacity: 0 }} 
-                            animate={{ opacity: 1 }} 
-                            exit={{ opacity: 0 }} 
-                            className={`relative min-h-full flex flex-col overflow-hidden ${isDarkMode ? 'bg-black' : 'bg-white'}`}
-                        >
+                        <motion.div key="home" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                             
-                            {/* Alert for Declined Appointments */}
-                            <AnimatePresence>
-                                {declinedAppointments.length > 0 && (
-                                    <div className="absolute top-0 left-0 right-0 z-40 px-6 pt-4">
-                                        {declinedAppointments.map(app => (
-                                            <motion.div 
-                                                key={app.id}
-                                                initial={{ opacity: 0, y: -20 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                exit={{ opacity: 0, y: -20 }}
-                                                className={`p-4 rounded-xl mb-2 flex items-center justify-between shadow-lg backdrop-blur-md border ${isDarkMode ? 'bg-rose-900/40 border-rose-500/30 text-white' : 'bg-rose-50 border-rose-200 text-rose-800'}`}
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <AlertTriangle className="text-rose-500" size={20}/>
-                                                    <div>
-                                                        <p className="text-xs font-bold uppercase">{language === 'vi' ? 'Yêu cầu bị từ chối' : 'Appointment Declined'}</p>
-                                                        <p className="text-sm font-medium">{app.title} on {new Date(app.date).toLocaleDateString()}</p>
-                                                    </div>
-                                                </div>
-                                                <button onClick={() => handleDismissDeclined(app.id)} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${isDarkMode ? 'bg-white/10 hover:bg-white/20' : 'bg-rose-100 hover:bg-rose-200'} transition-colors`}>
-                                                    {language === 'vi' ? 'Đã hiểu' : 'Dismiss'}
-                                                </button>
-                                            </motion.div>
-                                        ))}
-                                    </div>
-                                )}
-                            </AnimatePresence>
-
-                            {/* SPLIT HERO SECTION - PINK THEME */}
-                            <div className="relative w-full min-h-[600px] flex flex-col md:flex-row">
-                                {/* LEFT: Content Area */}
-                                <div className={`w-full md:w-1/2 relative z-20 flex flex-col justify-center px-8 md:px-16 py-12 ${isDarkMode ? 'bg-black text-white' : 'bg-white text-slate-900'}`}>
-                                    {/* Top Left Blob Decoration */}
-                                    <div className={`absolute top-0 left-0 w-64 h-64 rounded-br-full blur-3xl opacity-40 pointer-events-none ${isDarkMode ? 'bg-rose-900' : 'bg-pink-100'}`}></div>
-
-                                    <motion.div 
-                                        initial={{ opacity: 0, x: -50 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        transition={{ duration: 0.8, ease: "easeOut" }}
-                                        className="relative"
-                                    >
-                                        <div className="flex items-center space-x-2 mb-6">
-                                            <span className={`text-xs font-bold uppercase tracking-[0.25em] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>MEDASSIST SYSTEM</span>
-                                        </div>
-                                        
-                                        <h1 className="text-5xl md:text-7xl font-black leading-[0.95] mb-6">
-                                            WELCOME TO <br/>
-                                            <span className="text-rose-500">MEDASSIST</span>
-                                        </h1>
-                                        
-                                        <p className="text-sm md:text-lg opacity-70 mb-10 max-w-md font-medium leading-relaxed">
-                                            {language === 'vi' 
-                                                ? 'Nền tảng y tế thông minh, kết nối bạn với chuyên gia và theo dõi sức khỏe võng mạc tức thì.' 
-                                                : 'An intelligent healthcare platform connecting you with specialists and tracking retina health instantly.'}
-                                        </p>
-
-                                        <button 
-                                            onClick={() => setIsBookModalOpen(true)}
-                                            className="px-10 py-4 rounded-full bg-rose-500 text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-rose-200 hover:bg-rose-600 hover:scale-105 transition-all"
-                                        >
-                                            {language === 'vi' ? 'Bắt Đầu Ngay' : 'Get Started!'} 
-                                        </button>
-                                    </motion.div>
-                                </div>
-
-                                {/* RIGHT: Visual & Wavy Shape */}
-                                <div className={`w-full md:w-1/2 relative min-h-[400px] md:min-h-auto overflow-hidden`}>
-                                    
-                                    {/* Fluid Wave Separator (Pink Style) */}
-                                    <div className="absolute top-0 bottom-0 left-[-2px] w-full h-full z-20 pointer-events-none md:block hidden text-white dark:text-black">
-                                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className={`h-full w-auto fill-current ${isDarkMode ? 'text-black' : 'text-white'}`}>
-                                            <path d="M0 0 V100 C 40 80 60 20 25 0 Z" />
-                                        </svg>
-                                    </div>
-                                    
-                                    {/* Mobile Wave (Top to Bottom) */}
-                                    <div className={`absolute top-[-1px] left-0 w-full z-20 md:hidden block ${isDarkMode ? 'text-black' : 'text-white'}`}>
-                                        <svg viewBox="0 0 1440 320" className="w-full fill-current">
-                                            <path fillOpacity="1" d="M0,192L48,197.3C96,203,192,213,288,192C384,171,480,117,576,112C672,107,768,149,864,160C960,171,1056,149,1152,133.3C1248,117,1344,107,1392,101.3L1440,96L1440,0L1392,0C1344,0,1248,0,1152,0C1056,0,960,0,864,0C768,0,672,0,576,0C480,0,384,0,288,0C192,0,96,0,48,0L0,0Z"></path>
-                                        </svg>
-                                    </div>
-
-                                    {/* Background Image (User Custom) */}
-                                    <motion.div 
-                                        initial={{ scale: 1.1, opacity: 0 }}
-                                        animate={{ scale: 1, opacity: 1 }}
-                                        transition={{ duration: 1 }}
-                                        className="absolute inset-0 bg-cover bg-center"
-                                        style={{ 
-                                            backgroundImage: `url('${userProfile?.bannerURL || heroBackground}')`,
-                                            filter: isDarkMode ? 'brightness(0.6) contrast(1.2)' : 'brightness(1)'
-                                        }}
-                                    />
-                                    <div className={`absolute inset-0 bg-gradient-to-t ${isDarkMode ? 'from-black/80' : 'from-rose-500/20'} to-transparent mix-blend-overlay`} />
-
-                                    {/* Wallpaper Button */}
-                                    <div className="absolute top-4 right-4 z-30">
-                                        <button 
-                                            onClick={() => bannerInputRef.current?.click()}
-                                            disabled={isUploadingBanner}
-                                            className="p-3 bg-white/20 backdrop-blur-md text-white rounded-full hover:bg-white hover:text-rose-500 transition-all shadow-lg border border-white/30"
-                                            title="Change Wallpaper"
-                                        >
-                                            {isUploadingBanner ? <Loader2 size={20} className="animate-spin" /> : <ImageIcon size={20} />}
-                                        </button>
-                                        <input 
-                                            type="file" 
-                                            ref={bannerInputRef} 
-                                            onChange={handleBannerUpload}
-                                            className="hidden" 
-                                            accept="image/*"
-                                        />
-                                    </div>
-
-                                    {/* Falling Petals (Decor) */}
-                                    {[...Array(5)].map((_, i) => (
-                                        <motion.div
-                                            key={i}
-                                            className="absolute text-white/60 pointer-events-none"
-                                            initial={{ y: -50, x: Math.random() * 400, opacity: 0, rotate: 0 }}
-                                            animate={{ y: 600, x: (Math.random() - 0.5) * 200 + (Math.random() * 400), opacity: [0, 1, 0], rotate: 360 }}
-                                            transition={{ 
-                                                duration: 8 + Math.random() * 8, 
-                                                repeat: Infinity, 
-                                                delay: i * 2,
-                                                ease: "linear"
-                                            }}
-                                            style={{ left: `${20 + Math.random() * 60}%` }}
-                                        >
-                                            <div className="w-3 h-3 rounded-full bg-pink-200 blur-[1px]" style={{ borderRadius: '50% 0 50% 50%'}} />
-                                        </motion.div>
-                                    ))}
-                                </div>
+                            {/* Fake Search Bar */}
+                            <div className={`flex items-center px-4 py-3 rounded-2xl ${cardBg}`}>
+                                <Search size={18} className="opacity-40 mr-3"/>
+                                <span className="text-sm opacity-40 font-medium">Tìm kiếm dịch vụ...</span>
                             </div>
 
-                            {/* CARDS SECTION */}
-                            <div className="px-6 md:px-16 -mt-10 md:-mt-20 relative z-30 pb-20">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    
-                                    {/* Card 1 */}
-                                    <motion.div 
-                                        initial={{ y: 50, opacity: 0 }} 
-                                        animate={{ y: 0, opacity: 1 }} 
-                                        transition={{ delay: 0.3 }}
-                                        className={`p-6 rounded-3xl backdrop-blur-xl border shadow-lg flex flex-col justify-between hover:-translate-y-2 transition-all duration-300 ${isDarkMode ? 'bg-slate-900/90 border-slate-700 hover:border-rose-500' : 'bg-white/90 border-white hover:border-rose-300'}`}
-                                    >
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div>
-                                                <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">{language === 'vi' ? 'Kết quả gần nhất' : 'Latest Result'}</p>
-                                                <h3 className={`text-xl font-black ${latestScan?.grade === 0 ? 'text-green-500' : 'text-orange-500'}`}>
-                                                    {latestScan ? (latestScan.grade === 0 ? (language === 'vi' ? 'Khỏe Mạnh' : 'Healthy') : `Grade ${latestScan.grade} DR`) : (language === 'vi' ? 'Chưa có dữ liệu' : 'No Data')}
-                                                </h3>
-                                            </div>
-                                            <div className={`p-3 rounded-full ${latestScan?.grade === 0 ? 'bg-green-100 text-green-500' : 'bg-orange-100 text-orange-500'}`}><Activity size={20} /></div>
-                                        </div>
-                                    </motion.div>
+                            {/* Hero Card */}
+                            <div className="relative rounded-[2.5rem] bg-gradient-to-br from-indigo-500 to-purple-600 text-white p-8 overflow-hidden shadow-2xl shadow-indigo-500/30">
+                                <div className="relative z-10 w-2/3">
+                                    <h2 className="text-2xl font-black mb-2 leading-tight">Chăm sóc mắt <br/>toàn diện</h2>
+                                    <p className="text-xs opacity-80 mb-6 font-medium">Đặt lịch khám và theo dõi sức khỏe ngay trên ứng dụng.</p>
+                                    <button onClick={() => setIsBookModalOpen(true)} className="bg-white text-indigo-600 px-6 py-2.5 rounded-full text-xs font-black uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
+                                        Đặt lịch ngay
+                                    </button>
+                                </div>
+                                <img 
+                                    src="https://cdn3d.iconscout.com/3d/premium/thumb/medical-checkup-4852332-4043939.png" 
+                                    className="absolute -right-4 -bottom-4 w-40 h-40 object-contain drop-shadow-2xl opacity-90"
+                                    alt="Doctor 3D"
+                                />
+                            </div>
 
-                                    {/* Card 2 */}
-                                    <motion.div 
-                                        initial={{ y: 50, opacity: 0 }} 
-                                        animate={{ y: 0, opacity: 1 }} 
-                                        transition={{ delay: 0.4 }}
-                                        className={`p-6 rounded-3xl backdrop-blur-xl border shadow-lg flex flex-col justify-between cursor-pointer hover:-translate-y-2 transition-all duration-300 ${isDarkMode ? 'bg-slate-900/90 border-slate-700 hover:border-pink-500' : 'bg-white/90 border-white hover:border-pink-300'}`} 
+                            {/* Categories / Actions */}
+                            <div>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-lg">Dịch vụ</h3>
+                                    <span className="text-xs font-bold text-blue-500">Xem tất cả</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FeatureCard 
+                                        icon={Calendar} 
+                                        title="Lịch hẹn" 
+                                        subtitle={`${myAppointments.filter(a=>a.status!=='Done').length} sắp tới`} 
+                                        color="bg-gradient-to-br from-blue-400 to-blue-600"
                                         onClick={() => setCurrentTab('schedule')}
-                                    >
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div>
-                                                <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">{language === 'vi' ? 'Lịch hẹn sắp tới' : 'Next Appointment'}</p>
-                                                <h3 className="text-xl font-bold">{upcomingAppointments.length > 0 ? new Date(upcomingAppointments[0].date).toLocaleDateString() : (language === 'vi' ? 'Trống' : 'None')}</h3>
-                                            </div>
-                                            <div className="p-3 rounded-full bg-pink-100 text-pink-500"><Calendar size={20} /></div>
-                                        </div>
-                                    </motion.div>
-
-                                    {/* Card 3 */}
-                                    <motion.div 
-                                        initial={{ y: 50, opacity: 0 }} 
-                                        animate={{ y: 0, opacity: 1 }} 
-                                        transition={{ delay: 0.5 }}
-                                        className={`p-6 rounded-3xl backdrop-blur-xl border shadow-lg flex flex-col justify-center ${isDarkMode ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-white'}`}
-                                    >
-                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-3">{language === 'vi' ? 'Dịch Vụ Nhanh' : 'Quick Access'}</p>
-                                        <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-                                            {[{ icon: MessageCircle, label: 'Chat', color: 'text-rose-500', action: () => setCurrentTab('chat') }, { icon: FileText, label: 'Records', color: 'text-pink-500', action: () => setCurrentTab('records') }].map((item, idx) => (
-                                                <motion.button 
-                                                    key={idx} 
-                                                    whileHover={{ y: -3, scale: 1.05 }} 
-                                                    onClick={item.action} 
-                                                    className={`min-w-[60px] h-[60px] rounded-2xl flex flex-col items-center justify-center gap-1 border shadow-sm transition-all duration-300 ${isDarkMode ? 'bg-slate-800 border-slate-700 hover:bg-slate-700' : 'bg-white border-slate-100 hover:bg-rose-50'}`}
-                                                >
-                                                    <item.icon size={18} className={item.color} />
-                                                    <span className="text-[9px] font-bold">{item.label}</span>
-                                                </motion.button>
-                                            ))}
-                                        </div>
-                                    </motion.div>
-
-                                </div>
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {/* VIEW: HEALTH RECORDS */}
-                    {currentTab === 'records' && (
-                        <motion.div key="records" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-6">
-                            <AnimatePresence mode="wait">
-                                {selectedRecord ? (
-                                    <motion.div key="detail" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="max-w-3xl mx-auto">
-                                        <button onClick={() => setSelectedRecord(null)} className={`flex items-center mb-6 text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}>
-                                            <ArrowLeft size={16} className="mr-2" /> {language === 'vi' ? 'Quay lại danh sách' : 'Back to List'}
-                                        </button>
-                                        <div className={`p-6 rounded-3xl border shadow-xl ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-                                            <div className="flex justify-between items-start mb-6">
-                                                <div>
-                                                    <h2 className="text-2xl font-black mb-1">{language === 'vi' ? 'Chi Tiết Chẩn Đoán' : 'Diagnosis Report'}</h2>
-                                                    <p className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>ID: #{selectedRecord.id.substring(0,8)} • {new Date(selectedRecord.date).toLocaleDateString()}</p>
-                                                </div>
-                                                <div className={`px-4 py-2 rounded-xl font-bold uppercase text-xs tracking-widest ${selectedRecord.grade === 0 ? 'bg-emerald-100 text-emerald-700' : selectedRecord.grade <= 2 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>Grade {selectedRecord.grade}</div>
-                                            </div>
-                                            {selectedRecord.imageUrl && (
-                                                <div className="grid grid-cols-2 gap-4 mb-8">
-                                                    <div className="space-y-2">
-                                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 flex items-center"><Eye size={12} className="mr-1"/> {language === 'vi' ? 'Ảnh Chụp Đáy Mắt' : 'Original Fundus'}</p>
-                                                        <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-black aspect-square"><img src={selectedRecord.imageUrl} className="w-full h-full object-contain" alt="Original" /></div>
-                                                    </div>
-                                                    {selectedRecord.heatmapUrl ? (
-                                                        <div className="space-y-2"><p className="text-[10px] font-bold uppercase tracking-widest opacity-60 flex items-center"><Activity size={12} className="mr-1"/> {language === 'vi' ? 'Bản Đồ Nhiệt (AI)' : 'AI Heatmap'}</p><div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-black aspect-square"><img src={selectedRecord.heatmapUrl} className="w-full h-full object-contain" alt="Heatmap" /></div></div>
-                                                    ) : (
-                                                        <div className="space-y-2 opacity-50"><p className="text-[10px] font-bold uppercase tracking-widest opacity-60 flex items-center"><Activity size={12} className="mr-1"/> AI Heatmap</p><div className="rounded-xl border border-dashed border-slate-400 aspect-square flex items-center justify-center bg-slate-50 dark:bg-slate-900"><span className="text-[10px]">No Heatmap</span></div></div>
-                                                    )}
-                                                </div>
-                                            )}
-                                            <div className={`p-5 rounded-2xl mb-6 border-l-4 ${isDarkMode ? 'bg-blue-900/10 border-blue-500' : 'bg-blue-50 border-blue-600'}`}>
-                                                <h3 className={`text-sm font-bold uppercase tracking-wider mb-2 flex items-center ${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}><Stethoscope size={16} className="mr-2"/> {language === 'vi' ? 'Lời Khuyên Của Bác Sĩ' : "Doctor's Advice"}</h3>
-                                                <p className={`text-sm leading-relaxed ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{selectedRecord.doctorNotes || (language === 'vi' ? "Chưa có ghi chú cụ thể." : "No specific notes provided.")}</p>
-                                            </div>
-                                            <div className={`p-5 rounded-2xl border ${isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                                                <h3 className="text-xs font-bold uppercase tracking-wider mb-2 flex items-center opacity-70"><Brain size={14} className="mr-2"/> {language === 'vi' ? 'Phân Tích AI' : "AI Findings"} <span className="ml-auto text-[10px] bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded">{selectedRecord.confidence.toFixed(0)}% Confidence</span></h3>
-                                                <p className="text-xs leading-relaxed opacity-80 whitespace-pre-wrap">{selectedRecord.note}</p>
-                                            </div>
-                                        </div>
-                                    </motion.div>
-                                ) : (
-                                    <motion.div key="list" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                                        <h2 className="text-2xl font-black mb-6">{t.patientDashboard.history}</h2>
-                                        {chartData.length > 0 && (
-                                            <div className={`mb-8 p-6 rounded-2xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
-                                                <div className="flex justify-between items-center mb-6"><h3 className={`text-lg font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>{language === 'vi' ? 'Biểu Đồ Sức Khỏe' : 'Health Curve'}</h3><TrendingUp size={18} className={isDarkMode ? 'text-rose-400' : 'text-rose-600'} /></div>
-                                                <div className="h-[200px] w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><defs><linearGradient id="colorGradePatient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3}/><stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} /><YAxis tickCount={5} domain={[0, 4]} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} /><Tooltip contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} itemStyle={{ color: isDarkMode ? '#fff' : '#000', fontSize: '12px', fontWeight: 'bold' }} labelFormatter={(label, payload) => payload[0]?.payload?.fullDate || label} /><Area type="monotone" dataKey="grade" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorGradePatient)" /></AreaChart></ResponsiveContainer></div>
-                                            </div>
-                                        )}
-                                        {diagnosisHistory.length === 0 ? (
-                                            <div className="text-center py-20 opacity-50"><FileText size={48} className="mx-auto mb-4"/><p>{language === 'vi' ? 'Chưa có hồ sơ bệnh án.' : 'No diagnosis history yet.'}</p><p className="text-xs mt-2 text-slate-400">{language === 'vi' ? 'Hồ sơ sẽ xuất hiện khi Bác sĩ cập nhật.' : 'Records appear here when the Doctor updates them.'}</p></div>
-                                        ) : (
-                                            <div className="space-y-3">{diagnosisHistory.map((rec) => (<div key={rec.id} onClick={() => setSelectedRecord(rec)} className={`p-4 rounded-2xl border flex items-center justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-xl cursor-pointer ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-rose-200'}`}><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${rec.grade === 0 ? 'bg-emerald-100 text-emerald-600' : rec.grade <= 2 ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>{rec.grade === 0 ? 'A' : rec.grade <= 2 ? 'B' : 'C'}</div><div><p className="text-xs font-bold opacity-50 uppercase tracking-wider">{new Date(rec.date).toLocaleDateString()}</p><h4 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{rec.grade === 0 ? "Healthy Retina" : `Diabetic Retinopathy (Stage ${rec.grade})`}</h4>{rec.doctorNotes && <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1 italic">Dr: "{rec.doctorNotes}"</p>}</div></div><ChevronRight size={16} className="opacity-30" /></div>))}</div>
-                                        )}
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </motion.div>
-                    )}
-
-                    {/* VIEW: CHAT */}
-                    {currentTab === 'chat' && (
-                        <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex flex-col relative overflow-hidden">
-                            {/* ... (Keep existing chat logic but potentially adjust colors if needed) ... */}
-                            <div className={`p-4 shadow-sm border-b z-10 flex flex-col gap-4 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-                                <div className="flex justify-between items-center">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-lg ${chatMode === 'doctor' ? 'bg-gradient-to-br from-rose-500 to-pink-600' : 'bg-gradient-to-br from-purple-500 to-pink-600'}`}>
-                                            {chatMode === 'doctor' ? <Stethoscope size={20} /> : <Bot size={20} />}
-                                        </div>
-                                        <div>
-                                            <h3 className="text-sm font-bold">{chatMode === 'doctor' ? (userProfile?.hospital || (language === 'vi' ? 'Bác sĩ phụ trách' : 'Your Doctor')) : (language === 'vi' ? 'Trợ lý AI' : 'AI Assistant')}</h3>
-                                            <div className="flex items-center">
-                                                <div className={`w-2 h-2 rounded-full mr-1.5 ${chatMode === 'ai' ? 'bg-green-500 animate-pulse' : isDoctorOnline ? 'bg-green-500' : 'bg-slate-400'}`} />
-                                                <span className="text-[10px] opacity-60 uppercase font-bold tracking-wider">
-                                                    {chatMode === 'ai' 
-                                                        ? 'Always Online' 
-                                                        : assignedDoctorId 
-                                                            ? (isDoctorOnline ? (language === 'vi' ? 'Đang hoạt động' : 'Active Now') : (language === 'vi' ? 'Ngoại tuyến' : 'Offline')) 
-                                                            : (language === 'vi' ? 'Chưa liên kết' : 'Not Linked')
-                                                    }
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* TAB SWITCHER */}
-                                <div className={`flex p-1 rounded-xl relative ${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                                    <motion.div 
-                                        layoutId="chat-tab-bg"
-                                        className={`absolute top-1 bottom-1 ${isDarkMode ? 'bg-slate-700' : 'bg-white'} rounded-lg shadow-sm`}
-                                        initial={false}
-                                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                                        style={{ 
-                                            left: chatMode === 'doctor' ? '4px' : '50%', 
-                                            right: chatMode === 'doctor' ? '50%' : '4px',
-                                            width: 'auto' 
-                                        }}
                                     />
-                                    <button 
-                                        onClick={() => setChatMode('doctor')}
-                                        className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider relative z-10 flex items-center justify-center gap-2 transition-colors ${chatMode === 'doctor' ? (isDarkMode ? 'text-white' : 'text-rose-600') : 'text-slate-500'}`}
-                                    >
-                                        <UserIcon size={12} /> {language === 'vi' ? 'Bác Sĩ' : 'Doctor'}
-                                    </button>
-                                    <button 
-                                        onClick={() => setChatMode('ai')}
-                                        className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider relative z-10 flex items-center justify-center gap-2 transition-colors ${chatMode === 'ai' ? (isDarkMode ? 'text-white' : 'text-purple-600') : 'text-slate-500'}`}
-                                    >
-                                        <Sparkles size={12} /> AI Chat
-                                    </button>
+                                    <FeatureCard 
+                                        icon={MessageCircle} 
+                                        title="Tư vấn" 
+                                        subtitle="Chat Bác sĩ/AI" 
+                                        color="bg-gradient-to-br from-orange-400 to-pink-500"
+                                        onClick={() => setCurrentTab('chat')}
+                                    />
+                                    <FeatureCard 
+                                        icon={FileText} 
+                                        title="Hồ sơ" 
+                                        subtitle="Kết quả khám" 
+                                        color="bg-gradient-to-br from-emerald-400 to-teal-500"
+                                        onClick={() => setCurrentTab('records')}
+                                    />
+                                    <FeatureCard 
+                                        icon={Settings} 
+                                        title="Cá nhân" 
+                                        subtitle="Cài đặt app" 
+                                        color="bg-gradient-to-br from-slate-400 to-slate-600"
+                                        onClick={() => setCurrentTab('profile')}
+                                    />
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {/* 2. RECORDS TAB (Professional) */}
+                    {currentTab === 'records' && (
+                        <motion.div key="records" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                            <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
+                                <div className={`min-w-[140px] p-4 rounded-2xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-blue-50 border-blue-100'} flex flex-col justify-center items-center`}>
+                                    <span className="text-3xl font-black text-blue-600">{diagnosisHistory.length}</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Lần khám</span>
+                                </div>
+                                <div className={`min-w-[140px] p-4 rounded-2xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-green-50 border-green-100'} flex flex-col justify-center items-center`}>
+                                    <span className="text-3xl font-black text-green-600">
+                                        {diagnosisHistory.length > 0 && diagnosisHistory[0].grade === 0 ? 'Tốt' : 'Theo dõi'}
+                                    </span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Tình trạng</span>
                                 </div>
                             </div>
 
-                            {/* --- MESSAGES AREA --- */}
-                            <div className="flex-1 overflow-y-auto space-y-4 p-4 custom-scrollbar bg-slate-50/50 dark:bg-black/50">
-                                {/* DOCTOR CHAT */}
-                                {chatMode === 'doctor' && (
-                                    !assignedDoctorId ? (
-                                        <div className="flex flex-col items-center justify-center h-full opacity-60 text-center">
-                                            <AlertTriangle size={48} className="text-yellow-500 mb-4" />
-                                            <p className="font-bold">{language === 'vi' ? 'Chưa liên kết với Bác sĩ' : 'No Doctor Assigned'}</p>
-                                            <p className="text-xs mt-2 max-w-xs">{language === 'vi' ? 'Vui lòng vào phần "Cá Nhân" và nhập email bác sĩ để kết nối.' : 'Go to "Profile" and link your doctor via email to start chatting.'}</p>
-                                            <button onClick={() => setCurrentTab('profile')} className="mt-4 text-xs font-bold text-rose-500 underline">{language === 'vi' ? 'Đi tới Cài đặt' : 'Go to Settings'}</button>
-                                        </div>
-                                    ) : messages.length === 0 ? (
-                                        <div className="text-center py-10 opacity-50"><MessageCircle size={40} className="mx-auto mb-2" /><p className="text-xs">{language === 'vi' ? 'Bắt đầu trò chuyện với bác sĩ.' : 'Start chatting with your doctor.'}</p></div>
-                                    ) : (
-                                        messages.map((msg, idx) => {
-                                            const isMe = msg.senderId === currentUser?.uid;
-                                            return (
-                                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={msg.id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                                    {!isMe && (
-                                                        <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white mr-2 self-end mb-1 shadow-sm">
-                                                            <Stethoscope size={12} />
-                                                        </div>
-                                                    )}
-                                                    <div className={`max-w-[75%] p-3 text-sm rounded-2xl shadow-sm ${isMe ? `${bubbleUser} rounded-br-sm` : `${bubbleOther} rounded-bl-sm`}`}>
-                                                        {msg.text}
-                                                    </div>
-                                                </motion.div>
-                                            );
-                                        })
-                                    )
-                                )}
-
-                                {/* DOCTOR TYPING INDICATOR - WITH SAFETY CHECK */}
-                                {chatMode === 'doctor' && isDoctorTyping && assignedDoctorId !== currentUser?.uid && (
-                                    <div className="flex w-full justify-start">
-                                        <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white mr-2 self-end mb-1 shadow-sm">
-                                            <Stethoscope size={12} />
-                                        </div>
-                                        <TypingIndicator isDarkMode={isDarkMode} />
+                            <h3 className="font-bold text-lg mb-4 mt-2">Lịch sử chẩn đoán</h3>
+                            <div className="space-y-4">
+                                {diagnosisHistory.length === 0 ? (
+                                    <div className="text-center py-10 opacity-50">
+                                        <FileText size={48} className="mx-auto mb-2"/>
+                                        <p>Chưa có hồ sơ bệnh án</p>
                                     </div>
-                                )}
-
-                                {/* AI CHAT */}
-                                {chatMode === 'ai' && (
-                                    aiMessages.map((msg, idx) => {
-                                        const isAi = msg.sender === 'ai';
-                                        return (
-                                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={msg.id} className={`flex ${!isAi ? 'justify-end' : 'justify-start'}`}>
-                                                {isAi && (
-                                                    <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white mr-2 self-start mt-2 shadow-sm">
-                                                        <Bot size={12} />
+                                ) : (
+                                    diagnosisHistory.map((rec) => (
+                                        <div key={rec.id} className={`p-5 rounded-[1.5rem] border ${cardBg}`}>
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${rec.grade === 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                                    {rec.grade === 0 ? 'Bình thường' : `Giai đoạn ${rec.grade}`}
+                                                </div>
+                                                <span className="text-xs font-bold opacity-50">{new Date(rec.date).toLocaleDateString()}</span>
+                                            </div>
+                                            <div className="flex gap-4">
+                                                {rec.imageUrl ? (
+                                                    <div className="w-20 h-20 rounded-xl bg-black overflow-hidden shrink-0">
+                                                        <img src={rec.imageUrl} className="w-full h-full object-cover" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-20 h-20 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+                                                        <ImageIcon size={24} className="opacity-20"/>
                                                     </div>
                                                 )}
-                                                <div className={`max-w-[85%] p-3 text-sm rounded-2xl shadow-sm leading-relaxed ${!isAi ? `${bubbleUser} bg-gradient-to-br from-purple-600 to-pink-600` : bubbleOther}`}>
-                                                    {msg.text}
+                                                <div className="flex-1">
+                                                    <p className="text-xs opacity-70 line-clamp-3 leading-relaxed">
+                                                        {rec.doctorNotes || rec.note || "Không có ghi chú thêm."}
+                                                    </p>
                                                 </div>
-                                            </motion.div>
-                                        );
-                                    })
-                                )}
-                                {chatMode === 'ai' && isAiThinking && (
-                                    <div className="flex justify-start">
-                                        <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white mr-2 self-center shadow-sm"><Bot size={12} /></div>
-                                        <div className={`${bubbleOther} p-3 rounded-2xl`}>
-                                            <Loader2 size={16} className="animate-spin text-purple-500" />
+                                            </div>
                                         </div>
+                                    ))
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {/* 3. SCHEDULE TAB */}
+                    {currentTab === 'schedule' && (
+                        <motion.div key="schedule" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                            <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl mb-6">
+                                <button onClick={() => setScheduleFilter('ongoing')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${scheduleFilter === 'ongoing' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600' : 'text-slate-400'}`}>Sắp tới</button>
+                                <button onClick={() => setScheduleFilter('completed')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${scheduleFilter === 'completed' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600' : 'text-slate-400'}`}>Đã xong</button>
+                            </div>
+
+                            <div className="space-y-2">
+                                {myAppointments.filter(a => scheduleFilter === 'ongoing' ? a.status !== 'Done' : a.status === 'Done').map(appt => (
+                                    <AppointmentCard key={appt.id} appt={appt} isDarkMode={isDarkMode} />
+                                ))}
+                                {myAppointments.filter(a => scheduleFilter === 'ongoing' ? a.status !== 'Done' : a.status === 'Done').length === 0 && (
+                                    <div className="text-center py-10 opacity-50">
+                                        <Calendar size={48} className="mx-auto mb-2"/>
+                                        <p>Không có lịch hẹn nào</p>
                                     </div>
                                 )}
+                            </div>
+
+                            <button 
+                                onClick={() => setIsBookModalOpen(true)}
+                                className="fixed bottom-24 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform z-20"
+                            >
+                                <Plus size={24} />
+                            </button>
+                        </motion.div>
+                    )}
+
+                    {/* 4. CHAT TAB */}
+                    {currentTab === 'chat' && (
+                        <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full flex flex-col -m-6">
+                            <div className={`p-4 border-b ${isDarkMode ? 'border-slate-800 bg-slate-900' : 'border-slate-100 bg-white'}`}>
+                                <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                                    <button onClick={() => setChatMode('doctor')} className={`flex-1 py-2.5 flex items-center justify-center gap-2 rounded-lg text-xs font-bold uppercase transition-all ${chatMode === 'doctor' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600' : 'text-slate-400'}`}>
+                                        <Stethoscope size={14}/> Bác Sĩ
+                                    </button>
+                                    <button onClick={() => setChatMode('ai')} className={`flex-1 py-2.5 flex items-center justify-center gap-2 rounded-lg text-xs font-bold uppercase transition-all ${chatMode === 'ai' ? 'bg-white dark:bg-slate-700 shadow-sm text-purple-600' : 'text-slate-400'}`}>
+                                        <Sparkles size={14}/> Trợ lý AI
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-black/20">
+                                {(chatMode === 'doctor' ? messages : aiMessages).map((msg, i) => {
+                                    const isMe = chatMode === 'doctor' ? msg.senderId === currentUser?.uid : msg.sender === 'user';
+                                    return (
+                                        <div key={i} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                                                isMe 
+                                                ? 'bg-blue-600 text-white rounded-br-none' 
+                                                : (isDarkMode ? 'bg-slate-800 text-white' : 'bg-white text-slate-800') + ' rounded-bl-none'
+                                            }`}>
+                                                {msg.text}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {isAiThinking && <div className="flex justify-start"><div className="bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-bl-none"><Loader2 size={16} className="animate-spin text-purple-500"/></div></div>}
                                 <div ref={messagesEndRef} />
                             </div>
 
-                            {/* --- INPUT AREA --- */}
-                            <div className={`p-3 m-3 rounded-2xl flex items-center gap-2 border shadow-lg ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-white'}`}>
-                                <input 
-                                    className={`flex-1 bg-transparent p-2 text-sm outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`} 
-                                    placeholder={language === 'vi' ? "Nhập tin nhắn..." : "Type a message..."} 
-                                    value={chatMode === 'doctor' ? inputMsg : aiInputMsg} 
-                                    onChange={e => chatMode === 'doctor' ? handleInputChange(e) : setAiInputMsg(e.target.value)} 
-                                    onKeyDown={e => e.key === 'Enter' && (chatMode === 'doctor' ? handleSendMessage() : handleSendAI())} 
-                                />
-                                <button 
-                                    onClick={chatMode === 'doctor' ? handleSendMessage : handleSendAI} 
-                                    disabled={chatMode === 'doctor' ? !inputMsg.trim() : (!aiInputMsg.trim() || isAiThinking)} 
-                                    className={`p-3 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md ${chatMode === 'doctor' ? 'bg-rose-500 hover:bg-rose-600' : 'bg-purple-600 hover:bg-purple-700'}`}
-                                >
-                                    <Send size={16} />
-                                </button>
+                            <div className={`p-3 ${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-t ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                                <div className={`flex items-center gap-2 p-1 rounded-full border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                    <input 
+                                        className="flex-1 bg-transparent px-4 py-2 text-sm outline-none"
+                                        placeholder={chatMode === 'doctor' ? "Nhắn tin cho bác sĩ..." : "Hỏi AI về sức khỏe..."}
+                                        value={inputMsg}
+                                        onChange={e => setInputMsg(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && (chatMode === 'doctor' ? handleSendMessage() : handleSendAI())}
+                                    />
+                                    <button 
+                                        onClick={chatMode === 'doctor' ? handleSendMessage : handleSendAI}
+                                        disabled={!inputMsg.trim()}
+                                        className={`p-2.5 rounded-full text-white transition-all ${!inputMsg.trim() ? 'bg-slate-300' : (chatMode === 'doctor' ? 'bg-blue-600' : 'bg-purple-600')}`}
+                                    >
+                                        <Send size={16} />
+                                    </button>
+                                </div>
                             </div>
                         </motion.div>
                     )}
 
-                    {/* VIEW: SCHEDULE */}
-                    {currentTab === 'schedule' && (
-                        <motion.div key="schedule" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6">
-                             <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-2xl font-black">{t.patientDashboard.appointments}</h2>
-                                <button onClick={() => setIsBookModalOpen(true)} className="p-2 bg-rose-500 text-white rounded-full shadow-lg hover:scale-110 transition-transform"><Plus size={20}/></button>
-                             </div>
-                             <div className="space-y-3">
-                                {myAppointments.filter(a => a.status !== 'Declined').length > 0 ? myAppointments.filter(a => a.status !== 'Declined').map(app => (
-                                    <div key={app.id} className={`p-5 rounded-2xl border transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-100 shadow-sm hover:border-rose-200'} flex gap-4`}>
-                                        <div className="flex flex-col items-center justify-center px-4 border-r border-slate-200 dark:border-slate-800">
-                                            <span className="text-xs font-bold uppercase text-slate-400">{new Date(app.date).toLocaleDateString('en-US', {month: 'short'})}</span>
-                                            <span className="text-xl font-black">{new Date(app.date).getDate()}</span>
-                                        </div>
-                                        <div>
-                                            <h4 className="font-bold text-sm mb-1">{app.title}</h4>
-                                            <p className="text-xs text-slate-500 mb-2">Dr. Assigned • {app.startTime}:00</p>
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${app.status === 'Done' ? 'bg-green-100 text-green-600' : app.status === 'In Progress' ? 'bg-blue-100 text-blue-600' : 'bg-yellow-100 text-yellow-600 animate-pulse'}`}>
-                                                {app.status === 'Pending' ? (language === 'vi' ? 'Chờ xác nhận' : 'Waiting Confirmation') : app.status}
-                                            </span>
-                                        </div>
-                                    </div>
-                                )) : (
-                                    <div className="text-center py-10 opacity-50 text-sm">{language === 'vi' ? 'Không tìm thấy lịch hẹn.' : 'No appointments found.'}</div>
-                                )}
-                             </div>
-                        </motion.div>
-                    )}
-
-                    {/* VIEW: PROFILE */}
+                    {/* 5. PROFILE / SETTINGS TAB */}
                     {currentTab === 'profile' && (
-                        <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pb-20 p-6">
-                            <h2 className="text-2xl font-black mb-4">{t.patientDashboard.tabs.profile}</h2>
-                            <SettingsView userProfile={userProfile} isDarkMode={isDarkMode} onProfileUpdate={() => {}} />
-                            <div className="mt-6 px-4">
-                                <button onClick={handleLogoutWrapper} disabled={isLoggingOut} className="w-full py-4 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold uppercase text-xs rounded-xl flex items-center justify-center transition-all disabled:opacity-50">
-                                    {isLoggingOut ? <Loader2 size={16} className="animate-spin mr-2"/> : <LogOut size={16} className="mr-2"/>} {t.sidebar.logout}
-                                </button>
+                        <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                            <div className="flex items-center gap-4 mb-6">
+                                <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                                    <img src={userProfile?.photoURL || "https://ui-avatars.com/api/?name=User&background=random"} className="w-20 h-20 rounded-full object-cover border-4 border-white dark:border-slate-800 shadow-xl" />
+                                    <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Settings size={20} className="text-white"/>
+                                    </div>
+                                    <input type="file" ref={fileInputRef} className="hidden" onChange={handleAvatarUpload} accept="image/*" />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black">{userProfile?.displayName}</h2>
+                                    <p className="text-xs opacity-50">{userProfile?.email}</p>
+                                    <span className="inline-block mt-2 px-3 py-1 bg-blue-100 text-blue-600 rounded-full text-[10px] font-bold uppercase">Bệnh nhân</span>
+                                </div>
                             </div>
+
+                            <div>
+                                <h3 className="text-xs font-bold uppercase opacity-50 mb-3 tracking-widest pl-2">Cài đặt chung</h3>
+                                <div className={`rounded-[1.5rem] overflow-hidden ${cardBg}`}>
+                                    <SettingItem icon={UserIcon} label="Thông tin tài khoản" value="Chỉnh sửa" isDarkMode={isDarkMode} />
+                                    <SettingItem icon={Bell} label="Thông báo" isDarkMode={isDarkMode} />
+                                    <SettingItem icon={Shield} label="Bảo mật & Quyền riêng tư" isDarkMode={isDarkMode} />
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 className="text-xs font-bold uppercase opacity-50 mb-3 tracking-widest pl-2">Ứng dụng</h3>
+                                <div className={`rounded-[1.5rem] overflow-hidden ${cardBg}`}>
+                                    <div onClick={toggleTheme} className={`flex items-center justify-center p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800`}>
+                                        {isDarkMode ? <Sun className="mr-2"/> : <Moon className="mr-2"/>}
+                                        <span className="font-bold text-sm">Giao diện: {isDarkMode ? 'Tối' : 'Sáng'}</span>
+                                    </div>
+                                    <SettingItem icon={Globe} label="Ngôn ngữ" value="Tiếng Việt" isDarkMode={isDarkMode} />
+                                    <SettingItem icon={HelpCircle} label="Trợ giúp & Hỗ trợ" isDarkMode={isDarkMode} />
+                                </div>
+                            </div>
+
+                            <button onClick={onLogout} className="w-full py-4 rounded-[1.5rem] bg-red-50 text-red-500 font-bold uppercase text-xs tracking-widest hover:bg-red-100 transition-colors flex items-center justify-center gap-2">
+                                <LogOut size={16}/> Đăng xuất
+                            </button>
                         </motion.div>
                     )}
 
                 </AnimatePresence>
             </main>
 
-            <nav className={`px-6 py-3 flex justify-between items-center z-20 ${isDarkMode ? 'bg-black/90 border-slate-900' : 'bg-white/90 border-slate-100'} backdrop-blur-lg border-t`}>
-                <TabButton id="home" icon={Home} label={t.patientDashboard.tabs.home} currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
-                <TabButton id="records" icon={Activity} label={t.patientDashboard.tabs.records} currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
-                <TabButton id="schedule" icon={Calendar} label={t.patientDashboard.tabs.schedule} currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
-                <TabButton id="chat" icon={MessageCircle} label={t.patientDashboard.tabs.chat} currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
-                <TabButton id="profile" icon={UserIcon} label={t.patientDashboard.tabs.profile} currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
-            </nav>
+            {/* --- BOTTOM NAV (Floating Style) --- */}
+            <div className="fixed bottom-6 left-6 right-6 md:left-1/2 md:w-96 md:-translate-x-1/2 z-40">
+                <nav className={`flex justify-around items-center p-2 rounded-[2rem] shadow-2xl backdrop-blur-md border ${isDarkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-white/90 border-white'}`}>
+                    <TabButton id="home" icon={Home} label="Home" currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
+                    <TabButton id="records" icon={Activity} label="Hồ sơ" currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
+                    <TabButton id="schedule" icon={Calendar} label="Lịch" currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
+                    <TabButton id="chat" icon={MessageCircle} label="Chat" currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
+                    <TabButton id="profile" icon={UserIcon} label="Tôi" currentTab={currentTab} setCurrentTab={setCurrentTab} isDarkMode={isDarkMode} />
+                </nav>
+            </div>
 
-            {/* Book Appointment Modal remains the same ... */}
+            {/* --- BOOKING MODAL --- */}
             <AnimatePresence>
                 {isBookModalOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                         <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={() => setIsBookModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-                        <motion.div initial={{y:20, opacity:0}} animate={{y:0, opacity:1}} exit={{y:20, opacity:0}} className={`relative w-full max-w-sm max-h-[85vh] overflow-y-auto p-6 rounded-3xl ${isDarkMode ? 'bg-slate-900 border border-slate-800' : 'bg-white border border-slate-100'} shadow-2xl custom-scrollbar`}>
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-xl font-black">{t.patientDashboard.book_new}</h3>
-                                <button onClick={() => setIsBookModalOpen(false)} className={`p-1.5 rounded-full ${isDarkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}><X size={20}/></button>
-                            </div>
-                            <form onSubmit={handleBookAppointment} className="space-y-6">
+                        <motion.div initial={{y:100, opacity: 0}} animate={{y:0, opacity: 1}} exit={{y:100, opacity: 0}} className={`relative w-full max-w-sm p-6 rounded-[2rem] ${isDarkMode ? 'bg-slate-900' : 'bg-white'} shadow-2xl`}>
+                            <h3 className="text-xl font-black mb-6 text-center">Đặt Lịch Khám Mới</h3>
+                            <form onSubmit={handleBooking} className="space-y-4">
                                 <div>
-                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Reason for Visit</label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {APPOINTMENT_TYPES.map((type) => (
-                                            <button key={type} type="button" onClick={() => setSelectedReasonType(type)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${selectedReasonType === type ? 'bg-rose-500 text-white border-rose-500' : `${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500' : 'bg-white border-slate-200 text-slate-600 hover:border-rose-300'}`}`}>{type}</button>
-                                        ))}
-                                    </div>
+                                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1 block">Lý do khám</label>
+                                    <select value={selectedReasonType} onChange={e => setSelectedReasonType(e.target.value)} className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>{APPOINTMENT_TYPES.map(t => <option key={t}>{t}</option>)}</select>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Preferred Date</label>
-                                    <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
-                                        {[{ label: language === 'vi' ? 'Ngày mai' : 'Tomorrow', days: 1 }, { label: language === 'vi' ? '3 ngày tới' : 'In 3 Days', days: 3 }, { label: language === 'vi' ? 'Tuần tới' : 'Next Week', days: 7 }].map((opt) => (
-                                             <button key={opt.label} type="button" onClick={() => { const d = new Date(); d.setDate(d.getDate() + opt.days); setNewBookDate(d.toISOString().split('T')[0]); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all whitespace-nowrap ${isDarkMode ? 'border-slate-700 hover:bg-slate-800 text-slate-400' : 'border-slate-200 hover:bg-slate-100 text-slate-500'}`}>{opt.label}</button>
-                                        ))}
-                                    </div>
-                                    <div className={`relative flex items-center p-3 rounded-xl border ${isDarkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-200'} focus-within:border-rose-500 transition-colors`}>
-                                        <Calendar size={16} onClick={openDatePicker} className={`mr-3 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'} cursor-pointer hover:text-rose-500`}/>
-                                        <input ref={dateInputRef} required type="date" min={todayStr} value={newBookDate} onChange={e => setNewBookDate(e.target.value)} className={`w-full bg-transparent outline-none text-sm font-bold ${isDarkMode ? 'text-white [&::-webkit-calendar-picker-indicator]:invert' : 'text-slate-900'}`} />
-                                    </div>
-                                    <p className="text-[9px] text-slate-500 mt-2 ml-1">{language === 'vi' ? 'Nhập ngày (ngày/tháng/năm) hoặc chọn biểu tượng lịch.' : 'Type date (DD/MM/YYYY) or tap icon to pick.'}</p>
+                                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1 block">Ngày khám</label>
+                                    <input required type="date" value={newBookDate} onChange={e => setNewBookDate(e.target.value)} className={`w-full p-3 rounded-xl border outline-none font-bold text-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`} />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Available Slot</label>
+                                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1 block">Giờ khám</label>
                                     <div className="grid grid-cols-4 gap-2">
-                                        {AVAILABLE_HOURS.map((hour) => (
-                                            <button key={hour} type="button" onClick={() => setSelectedTimeSlot(hour)} className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center transition-all ${selectedTimeSlot === hour ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' : `${isDarkMode ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}`}>{hour}:00</button>
+                                        {AVAILABLE_HOURS.map(h => (
+                                            <button key={h} type="button" onClick={() => setSelectedTimeSlot(h)} className={`py-2 rounded-lg font-bold text-xs transition-all ${selectedTimeSlot === h ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 dark:bg-slate-800'}`}>{h}:00</button>
                                         ))}
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Additional Notes</label>
-                                    <textarea value={newBookReason} onChange={e => setNewBookReason(e.target.value)} className={`w-full p-3 rounded-xl border outline-none text-sm min-h-[80px] ${isDarkMode ? 'bg-slate-950 border-slate-700 focus:border-rose-500' : 'bg-slate-50 border-slate-200 focus:border-rose-500'}`} placeholder="Describe symptoms..." />
-                                </div>
-                                <button type="submit" className="w-full py-4 bg-rose-500 text-white font-bold rounded-xl uppercase text-xs tracking-widest shadow-lg shadow-rose-500/30 hover:brightness-110 hover:scale-[1.02] transition-all flex items-center justify-center">Confirm Request <Check size={16} className="ml-2"/></button>
+                                <textarea placeholder="Mô tả thêm triệu chứng..." value={newBookReason} onChange={e => setNewBookReason(e.target.value)} className={`w-full p-3 rounded-xl border h-20 outline-none text-sm ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`} />
+                                <button type="submit" className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl uppercase text-xs tracking-widest hover:bg-blue-700 shadow-xl transition-transform active:scale-95">Xác nhận đặt lịch</button>
                             </form>
+                            <button onClick={() => setIsBookModalOpen(false)} className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500"><X size={16}/></button>
                         </motion.div>
                     </div>
                 )}

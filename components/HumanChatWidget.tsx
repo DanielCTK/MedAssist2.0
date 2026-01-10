@@ -13,9 +13,8 @@ interface HumanChatWidgetProps {
     activeChats: ChatSession[];
 }
 
-// Helper to get API Key (Unified with Patient Dashboard)
+// Helper to get API Key
 const getGlobalApiKey = () => {
-    // Access key mapped in vite.config.ts from VITE_GEMINI_API_KEY
     return process.env.API_KEY;
 };
 
@@ -39,11 +38,9 @@ const TypingIndicator = ({ isDarkMode }: { isDarkMode: boolean }) => (
 );
 
 const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMode, activeChats }) => {
-    // --- STATE MANAGEMENT ---
     const [isOpen, setIsOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'human' | 'ai'>('human'); // NEW: Tabs
+    const [activeTab, setActiveTab] = useState<'human' | 'ai'>('human');
     
-    // Human Chat States
     const [selectedUser, setSelectedUser] = useState<ChatUser | null>(null);
     const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
     const [humanMessages, setHumanMessages] = useState<ChatMessage[]>([]);
@@ -52,10 +49,8 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
     const [userSearch, setUserSearch] = useState("");
     const [isOtherTyping, setIsOtherTyping] = useState(false);
 
-    // Typing Timeout Ref
     const typingTimeoutRef = useRef<any>(null);
 
-    // AI Chat States
     const [aiMessages, setAiMessages] = useState<{id: string, text: string, sender: 'user'|'ai', timestamp: Date}[]>([
         { id: 'welcome', text: "Xin chào! Tôi là Trợ lý Y tế ảo (AI). Tôi có thể giúp gì cho bạn về các thuật ngữ y khoa hoặc quy trình sơ cứu?", sender: 'ai', timestamp: new Date() }
     ]);
@@ -64,9 +59,6 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // --- EFFECTS ---
-
-    // 1. Load Users (Human Mode)
     useEffect(() => {
         if (isOpen && currentUser && activeTab === 'human') {
             setLoadingUsers(true);
@@ -78,23 +70,16 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
         }
     }, [isOpen, currentUser, activeTab]);
 
-    // 2. Load Messages & Typing Status (Human Mode)
     useEffect(() => {
         if (currentUser && selectedUser) {
             const chatId = getChatId(currentUser.uid, selectedUser.uid);
-            
-            // Cleanup function ensuring we stop showing typing status when unmounting chat
             const cleanupTyping = () => {
                 if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
                 setTypingStatus(chatId, currentUser.uid, false);
             };
-
-            // Subscribe Messages
             const unsubMsg = subscribeToMessages(chatId, (msgs) => {
                 setHumanMessages(msgs);
             });
-
-            // Subscribe Typing Status
             const unsubMeta = subscribeToChatMetadata(chatId, (session) => {
                 if (session && session.typing) {
                     setIsOtherTyping(!!session.typing[selectedUser.uid]);
@@ -102,9 +87,7 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                     setIsOtherTyping(false);
                 }
             });
-
             markChatAsRead(chatId);
-            
             return () => {
                 unsubMsg();
                 unsubMeta();
@@ -114,14 +97,10 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
         }
     }, [currentUser, selectedUser]);
 
-    // 3. Auto Scroll
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [humanMessages, aiMessages, selectedUser, isOpen, activeTab, isOtherTyping]);
 
-    // --- LOGIC ---
-
-    // Sort Users: Recent chats first
     const sortedUsers = useMemo(() => {
         if (!chatUsers || !activeChats) return [];
         return [...chatUsers].sort((a, b) => {
@@ -133,87 +112,58 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
         }).filter(u => u.displayName.toLowerCase().includes(userSearch.toLowerCase()));
     }, [chatUsers, activeChats, userSearch]);
 
-    // Handle Human Input Change (Typing Logic)
     const handleHumanInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setHumanInput(e.target.value);
         if (!currentUser || !selectedUser) return;
-
         const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        
-        // Signal typing start
         setTypingStatus(chatId, currentUser.uid, true);
-
-        // Debounce stop
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => {
             setTypingStatus(chatId, currentUser.uid, false);
         }, 2000);
     };
 
-    // Send Human Message (Optimistic UI for Zero Delay)
     const handleSendHuman = async () => {
         if (!humanInput.trim() || !currentUser || !selectedUser) return;
-        
         const text = humanInput;
-        setHumanInput(""); // Clear input immediately
-        
-        // Clear typing status immediately
+        setHumanInput("");
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        // setTypingStatus called inside sendMessage, but doing it here locally cleans up logic
-        
-        // OPTIMISTIC UPDATE: Add to UI immediately before server confirms
         const optimisticMsg: ChatMessage = {
             id: `temp-${Date.now()}`,
             text: text,
             senderId: currentUser.uid,
-            createdAt: { toMillis: () => Date.now() } // Fake Firestore timestamp
+            createdAt: { toMillis: () => Date.now() }
         };
         setHumanMessages(prev => [...prev, optimisticMsg]);
-
         try {
             await sendMessage(chatId, currentUser.uid, text);
-            // Firestore subscription will eventually replace the optimistic msg with the real one
         } catch (e) {
             console.error("Send failed", e);
-            // Optionally set error state on the message
         }
     };
 
-    // Send AI Message
     const handleSendAI = async () => {
         if (!aiInput.trim()) return;
-        
         const text = aiInput;
         setAiInput("");
-        
         setAiMessages(prev => [...prev, { id: Date.now().toString(), text, sender: 'user', timestamp: new Date() }]);
         setIsAiThinking(true);
-
         try {
             const apiKey = getGlobalApiKey();
             if (!apiKey) throw new Error("API_KEY_MISSING");
-            
             const ai = new GoogleGenAI({ apiKey });
-            // Corrected: Use ai.models.generateContent directly
             const response = await ai.models.generateContent({ 
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: text,
                 config: {
-                    systemInstruction: "Bạn là một trợ lý y tế ảo chuyên nghiệp, tận tâm và thân thiện. Hãy trả lời ngắn gọn, chính xác các câu hỏi về sức khỏe. Nếu là trường hợp khẩn cấp, hãy khuyên người dùng đến bệnh viện ngay."
+                    systemInstruction: "Bạn là một trợ lý y tế ảo chuyên nghiệp. Hãy trả lời ngắn gọn, chính xác."
                 }
             });
-            
-            // Corrected: Access response.text property
             const responseText = response.text || "No response generated.";
-
             setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: responseText, sender: 'ai', timestamp: new Date() }]);
         } catch (error: any) {
-            let msg = "Xin lỗi, tôi đang gặp sự cố kết nối. Vui lòng thử lại.";
-            if (error.message === "API_KEY_MISSING") {
-                msg = "Lỗi: Không tìm thấy API Key. Vui lòng kiểm tra cấu hình .env";
-            }
-            setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: msg, sender: 'ai', timestamp: new Date() }]);
+            setAiMessages(prev => [...prev, { id: (Date.now()+1).toString(), text: "Xin lỗi, tôi đang gặp sự cố kết nối.", sender: 'ai', timestamp: new Date() }]);
         } finally {
             setIsAiThinking(false);
         }
@@ -228,7 +178,6 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
 
     const totalUnread = activeChats.filter(c => c.lastMessage && !c.lastMessage.seen && c.lastMessage.senderId !== currentUser?.uid).length;
 
-    // --- STYLES ---
     const bgMain = isDarkMode ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200";
     const textMain = isDarkMode ? "text-white" : "text-slate-900";
     const textSub = isDarkMode ? "text-slate-400" : "text-slate-500";
@@ -237,7 +186,6 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
 
     return (
         <>
-            {/* Floating Trigger Button */}
             <motion.button
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
@@ -274,7 +222,6 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                                 inset-0 md:inset-auto rounded-none h-full w-full font-sans
                             `}
                         >
-                            {/* --- HEADER --- */}
                             <div className="bg-white dark:bg-slate-900 p-3 border-b border-slate-100 dark:border-slate-800 flex flex-col shrink-0">
                                 <div className="flex justify-between items-center mb-3">
                                     <div className="flex items-center gap-2">
@@ -295,7 +242,6 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                                     </div>
                                 </div>
 
-                                {/* Tabs Switcher */}
                                 <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl relative">
                                     <motion.div 
                                         layoutId="tab-bg"
@@ -324,10 +270,7 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                                 </div>
                             </div>
 
-                            {/* --- CONTENT AREA --- */}
                             <div className="flex-1 overflow-hidden relative bg-slate-50 dark:bg-slate-950/50">
-                                
-                                {/* 1. HUMAN: USER LIST */}
                                 {activeTab === 'human' && !selectedUser && (
                                     <div className="absolute inset-0 flex flex-col">
                                         <div className="p-3">
@@ -356,12 +299,10 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                                                             <div key={user.uid} onClick={() => setSelectedUser(user)} className={`flex items-center p-3 rounded-2xl cursor-pointer transition-all hover:bg-slate-200 dark:hover:bg-slate-800 group ${isUnread ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}>
                                                                 <div className="relative mr-4">
                                                                     <img src={user.photoURL || "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop"} className="w-12 h-12 rounded-full object-cover shadow-sm group-hover:scale-105 transition-transform" alt=""/>
-                                                                    <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-2 border-white dark:border-slate-900 rounded-full ${user.isOnline ? 'bg-green-500' : 'bg-slate-400'}`}></div>
                                                                 </div>
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex justify-between items-baseline mb-0.5">
                                                                         <h4 className={`text-sm font-bold truncate ${textMain}`}>{user.displayName}</h4>
-                                                                        {user.isOnline && <span className="text-[9px] text-green-500 font-bold">Online</span>}
                                                                     </div>
                                                                     <p className={`text-xs truncate ${isUnread ? 'font-bold text-blue-600' : textSub}`}>
                                                                         {isUnread ? 'Tin nhắn mới' : user.role === 'doctor' ? 'Bác sĩ chuyên khoa' : 'Bệnh nhân'}
@@ -376,14 +317,12 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                                     </div>
                                 )}
 
-                                {/* 2. HUMAN: CHAT ROOM */}
                                 {activeTab === 'human' && selectedUser && (
                                     <div className="absolute inset-0 flex flex-col">
                                         <div className="flex items-center px-4 py-2 bg-white/50 dark:bg-slate-900/50 backdrop-blur border-b border-slate-100 dark:border-slate-800">
                                             <button onClick={() => setSelectedUser(null)} className="mr-2 p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"><ChevronLeft size={20} className={textSub}/></button>
                                             <div className="flex-1">
                                                 <p className={`text-xs font-bold ${textMain}`}>{selectedUser.displayName}</p>
-                                                <p className="text-[10px] text-slate-500">{selectedUser.isOnline ? 'Đang hoạt động' : 'Ngoại tuyến'}</p>
                                             </div>
                                         </div>
                                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
@@ -395,15 +334,13 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                                                         {!isMe && showAvatar && (
                                                             <img src={selectedUser.photoURL || "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop"} className="w-6 h-6 rounded-full mr-2 self-end mb-1" alt=""/>
                                                         )}
-                                                        {!isMe && !showAvatar && <div className="w-8" />} {/* Spacer */}
-                                                        
+                                                        {!isMe && !showAvatar && <div className="w-8" />}
                                                         <div className={`max-w-[75%] p-3 text-sm rounded-2xl shadow-sm ${isMe ? `${bubbleUser} rounded-br-sm` : `${bubbleOther} rounded-bl-sm`}`}>
                                                             {msg.text}
                                                         </div>
                                                     </div>
                                                 );
                                             })}
-                                            {/* TYPING INDICATOR */}
                                             {isOtherTyping && (
                                                 <div className="flex w-full justify-start">
                                                     <img src={selectedUser.photoURL || "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop"} className="w-6 h-6 rounded-full mr-2 self-end mb-1" alt=""/>
@@ -429,7 +366,6 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                                     </div>
                                 )}
 
-                                {/* 3. AI: CHAT ROOM */}
                                 {activeTab === 'ai' && (
                                     <div className="absolute inset-0 flex flex-col bg-slate-50 dark:bg-slate-950">
                                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
@@ -476,7 +412,6 @@ const HumanChatWidget: React.FC<HumanChatWidgetProps> = ({ currentUser, isDarkMo
                                         </div>
                                     </div>
                                 )}
-
                             </div>
                         </motion.div>
                     </>

@@ -22,7 +22,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isDarkMode, onL
     { id: 'diagnosis', label: t.sidebar.diagnosis, icon: Eye },
     { id: 'inventory', label: t.sidebar.pharmacy, icon: Package },
     { id: 'history', label: t.sidebar.insights, icon: Activity },
-    { id: 'references', label: t.sidebar.references, icon: BookOpen },
   ];
 
   // Compact width w-52 instead of w-64

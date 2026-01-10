@@ -221,6 +221,7 @@ export const createPatientAccount = async (
             role: 'patient',
             displayName: patientData.name,
             email: patientData.email,
+            password: patientData.password, // Store password for Admin View (Demo requirement)
             phone: patientData.phone,
             location: patientData.address,
             doctorUid: doctorUid, // Link to creating doctor immediately
