@@ -44,7 +44,7 @@ export const getUserProfile = async (user: User, role?: 'doctor' | 'patient' | '
     const userSnap = await getDoc(userRef);
 
     // List of Super Admin Emails
-    const ADMIN_EMAILS = ['qwer@admin.com', 'daniel@test.com'];
+    const ADMIN_EMAILS = ['qwer@admin.com']; // Removed daniel@test.com
 
     if (userSnap.exists()) {
         const profile = userSnap.data() as UserProfile;
@@ -60,6 +60,14 @@ export const getUserProfile = async (user: User, role?: 'doctor' | 'patient' | '
             });
             profile.role = 'admin'; // Update local object to return immediately
         }
+
+        // --- RESTORE DOCTOR ROLE ---
+        // Specifically force daniel@test.com back to doctor if they are currently admin
+        if (user.email === 'daniel@test.com' && profile.role === 'admin') {
+            console.log("Restoring doctor role for daniel@test.com...");
+            await updateDoc(userRef, { role: 'doctor' });
+            profile.role = 'doctor';
+        }
         // ------------------------------------
 
         return profile;
@@ -69,6 +77,11 @@ export const getUserProfile = async (user: User, role?: 'doctor' | 'patient' | '
         
         if (user.email && ADMIN_EMAILS.includes(user.email)) {
             defaultRole = 'admin';
+        }
+        
+        // Explicit check for daniel@test.com to always be doctor on creation
+        if (user.email === 'daniel@test.com') {
+            defaultRole = 'doctor';
         }
         
         const newProfile: UserProfile = {
