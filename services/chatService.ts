@@ -19,6 +19,16 @@ export const subscribeToUsers = (currentUid: string, onData: (users: ChatUser[])
             }
         });
         onData(users);
+    }, (error) => {
+        // Suppress permission-denied errors. 
+        // This happens if the user role doesn't allow listing all users.
+        if (error.code !== 'permission-denied') {
+            console.error("Chat users subscription error:", error);
+        } else {
+            console.warn("Chat access limited: Cannot list all users.");
+        }
+        // Return empty list on error to keep UI stable
+        onData([]); 
     });
 };
 
@@ -48,6 +58,10 @@ export const subscribeToMessages = (chatId: string, onData: (msgs: ChatMessage[]
             ...doc.data()
         })) as ChatMessage[];
         onData(msgs);
+    }, (error) => {
+        if (error.code !== 'permission-denied') {
+            console.error("Messages subscription error:", error);
+        }
     });
 };
 
@@ -61,6 +75,8 @@ export const subscribeToChatMetadata = (chatId: string, onData: (session: ChatSe
         } else {
             onData(null);
         }
+    }, (error) => {
+        // Ignore permission errors for metadata
     });
 };
 
@@ -81,6 +97,8 @@ export const setTypingStatus = async (chatId: string, userId: string, isTyping: 
 
 // --- SUBSCRIBE TO ACTIVE CHAT SESSIONS (FOR NOTIFICATIONS) ---
 export const subscribeToActiveChats = (currentUid: string, onData: (chats: ChatSession[]) => void) => {
+    if (!currentUid) return () => {};
+    
     // Find chats where the current user is a participant
     // Firestore requires an exact match in the array
     const q = query(collection(db, "chats"), where("participants", "array-contains", currentUid));
@@ -91,6 +109,10 @@ export const subscribeToActiveChats = (currentUid: string, onData: (chats: ChatS
             ...doc.data()
         })) as ChatSession[];
         onData(chats);
+    }, (error) => {
+        if (error.code !== 'permission-denied') {
+            console.error("Active chats error:", error);
+        }
     });
 };
 

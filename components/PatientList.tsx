@@ -70,6 +70,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
                 setLoading(false);
             },
             (err) => {
+                // permission-denied errors are now suppressed in the service
                 if (err?.code !== 'permission-denied') console.error(err);
                 setLoading(false);
             }
@@ -91,7 +92,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
 
   // --- NEW: Fetch Real Appointments for Selected Patient ---
   useEffect(() => {
-      if (activePatient) {
+      if (activePatient && currentUser) {
           // Reset appointments when patient changes
           setPatientAppointments([]);
           
@@ -100,11 +101,12 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
               (data) => {
                   setPatientAppointments(data);
               },
-              (err) => console.error(err)
+              (err) => console.error(err),
+              currentUser.uid // Pass doctor ID to satisfy security rules
           );
           return () => unsubscribe();
       }
-  }, [activePatient]);
+  }, [activePatient, currentUser]);
 
   const filteredPatients = useMemo(() => {
     return patients.filter(patient => 
@@ -145,6 +147,7 @@ const PatientList: React.FC<PatientListProps> = ({ isDarkMode }) => {
       return { date: fallbackDate, days, hasAppointment: false, title: "Not Scheduled", type: "None" };
   }, [patientAppointments]);
 
+  // ... (Keep rest of file unchanged) ...
   // --- LOGIC: Chart Data from Real History ---
   const chartData = useMemo(() => {
       if (!activePatient || !activePatient.diagnosisHistory || activePatient.diagnosisHistory.length === 0) return [];

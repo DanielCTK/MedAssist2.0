@@ -1,5 +1,5 @@
 
-import * as firebaseApp from "firebase/app";
+import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
@@ -14,9 +14,8 @@ export const firebaseConfig = {
   measurementId: "G-9ZXPF54YSQ"
 };
 
-// Initialize Firebase (Modular SDK)
-// Use type casting to bypass potential type definition mismatch for initializeApp
-const app = (firebaseApp as any).initializeApp(firebaseConfig);
+// Initialize Firebase using standard Modular SDK pattern
+const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);

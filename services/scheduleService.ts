@@ -1,3 +1,4 @@
+
 import { db } from "./firebase";
 import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, doc } from "firebase/firestore";
 import { Appointment } from "../types";
@@ -13,7 +14,15 @@ export const subscribeToAppointments = (
     onData: (appointments: Appointment[]) => void,
     onError: (error: any) => void
 ) => {
-    const q = query(collection(db, COLLECTION_NAME), where("date", "==", dateStr));
+    // SECURITY FIX: If userId is undefined (e.g. loading), do not query.
+    // Querying without doctorId usually violates security rules.
+    if (!userId) return () => {};
+
+    const q = query(
+        collection(db, COLLECTION_NAME), 
+        where("date", "==", dateStr),
+        where("doctorId", "==", userId)
+    );
 
     return onSnapshot(q,
         (snapshot) => {
@@ -22,11 +31,6 @@ export const subscribeToAppointments = (
                 ...doc.data()
             })) as Appointment[];
             
-            // Lọc theo Doctor ID (nếu có)
-            if (userId) {
-                items = items.filter(item => item.doctorId === userId); 
-            }
-
             // Sắp xếp theo giờ tăng dần
             items.sort((a, b) => a.startTime - b.startTime);
             
@@ -70,18 +74,22 @@ export const subscribeToPendingAppointments = (
 };
 
 // ============================================================================
-// 3. LẤY LỊCH SỬ KHÁM (DÀNH CHO BỆNH NHÂN)
+// 3. LẤY LỊCH SỬ KHÁM (DÀNH CHO BỆNH NHÂN HOẶC BÁC SĨ XEM BỆNH NHÂN)
 // ============================================================================
 export const subscribeToPatientAppointments = (
     patientUid: string,
-    // Bỏ tham số patientEmail thừa thãi
     onData: (appointments: Appointment[]) => void,
-    onError: (error: any) => void
+    onError: (error: any) => void,
+    doctorId?: string // Optional: If viewing as a doctor, filter to ensure permission
 ) => {
-    const q = query(
-        collection(db, COLLECTION_NAME), 
-        where("patientId", "==", patientUid)
-    );
+    let constraints = [where("patientId", "==", patientUid)];
+    
+    // SECURITY FIX: If viewing as a doctor, we must limit to appointments owned by this doctor
+    if (doctorId) {
+        constraints.push(where("doctorId", "==", doctorId));
+    }
+
+    const q = query(collection(db, COLLECTION_NAME), ...constraints);
 
     return onSnapshot(q,
         (snapshot) => {
@@ -109,10 +117,15 @@ export const subscribeToAppointmentsRange = (
     onData: (appointments: Appointment[]) => void, // Tham số 4
     onError: (error: any) => void       // Tham số 5
 ) => {
+    // FIX: Avoiding Composite Index Error & Permission Error
+    // We query strictly by `doctorId` (equality) to match Security Rules.
+    // If userId is missing, we stop execution to avoid permission denied errors.
+    
+    if (!userId) return () => {};
+
     const q = query(
         collection(db, COLLECTION_NAME), 
-        where("date", ">=", startDate),
-        where("date", "<=", endDate)
+        where("doctorId", "==", userId)
     );
 
     return onSnapshot(q,
@@ -122,10 +135,9 @@ export const subscribeToAppointmentsRange = (
                 ...doc.data()
             })) as Appointment[];
 
-            // Lọc theo bác sĩ
-            if (userId) {
-                items = items.filter(item => item.doctorId === userId);
-            }
+            // CLIENT-SIDE FILTERING for Date Range
+            // Since we queried ALL appointments for this doctor, we must filter by date here.
+            items = items.filter(item => item.date >= startDate && item.date <= endDate);
 
             onData(items);
         },

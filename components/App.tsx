@@ -111,14 +111,29 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Fetch Data for Global Search & Notifications
+  // FIX: Only subscribe to patients if role is DOCTOR or ADMIN
   useEffect(() => {
-    if (currentUser) {
-        const unsubPatients = subscribeToPatients(currentUser.uid, setAllPatients, () => {});
+    if (currentUser && userProfile) {
+        let unsubPatients = () => {};
+        
+        // Only run patient subscription for authorized roles
+        if (userProfile.role === 'doctor' || userProfile.role === 'admin') {
+            unsubPatients = subscribeToPatients(currentUser.uid, setAllPatients, (err) => {
+                console.warn("Patient subscription suppressed:", err.message);
+            });
+        }
+
         const unsubInventory = subscribeToInventory(setAllInventory, () => {});
         const unsubChats = subscribeToActiveChats(currentUser.uid, setActiveChats);
-        return () => { unsubPatients(); unsubInventory(); unsubChats(); };
+        
+        return () => { 
+            unsubPatients(); 
+            unsubInventory(); 
+            unsubChats();
+        };
     }
-  }, [currentUser]);
+  }, [currentUser, userProfile]); // Added userProfile to dependency array
 
   useEffect(() => {
       if (!searchQuery.trim()) { setSearchResults([]); return; }

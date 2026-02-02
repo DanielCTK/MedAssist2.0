@@ -51,6 +51,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isDarkMode, currentUser
         const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
             const users = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() })) as UserProfile[];
             setAllUsers(users);
+        }, (error) => {
+            if (error.code === 'permission-denied') {
+                console.warn("Admin access required to list all users.");
+            } else {
+                console.error("User list error:", error);
+            }
         });
         return () => unsubUsers();
     }, []);

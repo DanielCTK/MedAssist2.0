@@ -68,7 +68,10 @@ export const subscribeToPatients = (
       onData(patients);
     },
     (error) => {
-      console.error("Firestore subscription error:", error);
+      // Suppress 'permission-denied' from console error to avoid noise when roles switch
+      if (error?.code !== 'permission-denied') {
+          console.error("Firestore subscription error:", error);
+      }
       onError(error);
     }
   );
